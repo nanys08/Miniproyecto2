@@ -1,20 +1,21 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import Card from "@/components/Card";
 import Input from "@/components/Input";
 import Button from "@/components/Button";
+import Checkbox from "@/components/Checkbox";
 import GoogleButton from "@/components/GoogleButton";
+import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
-import { api } from "@/services/api";
 
 export default function RegisterPage() {
   const { register, loginWithGoogle, demoMode } = useAuth();
   const { show } = useToast();
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -22,18 +23,14 @@ export default function RegisterPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!acceptedTerms) {
+      setError("Debes aceptar los términos de servicio para continuar");
+      return;
+    }
     setLoading(true);
     try {
-      if (!demoMode) {
-        // Verifica disponibilidad de username contra el backend (solo si Firebase real)
-        const { available } = await api.get<{ available: boolean }>(
-          `/auth/check-username/${encodeURIComponent(username)}`
-        );
-        if (!available) {
-          throw new Error("Ese nombre de usuario ya está en uso");
-        }
-      }
-      await register(email, password, username);
+      // El backend usa "username" como handle único; mandamos el nombre completo.
+      await register(email, password, fullName);
       show("success", "Cuenta creada correctamente");
       navigate("/dashboard", { replace: true });
     } catch (err) {
@@ -64,28 +61,58 @@ export default function RegisterPage() {
   }
 
   return (
-    <Card title="Crear cuenta" headingLevel={2}>
+    <div className="rounded-2xl bg-white p-8 shadow-sm">
+      <div className="flex flex-col items-center gap-2">
+        <Logo size="lg" showText={false} />
+        <span className="mt-1 text-2xl font-bold text-slate-900">
+          EstudioColab
+        </span>
+      </div>
+
+      <div className="mt-6 text-center">
+        <h1 className="text-2xl font-bold text-slate-900">Crea tu cuenta</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          Únete y empieza a estudiar en equipo
+        </p>
+      </div>
+
       {demoMode && (
         <p
           role="status"
-          className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900"
         >
           Modo demo: la cuenta se guarda solo en este navegador.
         </p>
       )}
 
+      <div className="mt-6">
+        <GoogleButton
+          type="button"
+          onClick={handleGoogle}
+          isLoading={googleLoading}
+          className="w-full !bg-white !border !border-slate-300 !text-slate-900 hover:!bg-slate-50"
+        />
+      </div>
+
+      <div className="my-5 flex items-center gap-3" aria-hidden="true">
+        <div className="h-px flex-1 bg-slate-200" />
+        <span className="text-xs text-slate-500">o</span>
+        <div className="h-px flex-1 bg-slate-200" />
+      </div>
+
       <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
         <Input
-          label="Nombre de usuario"
-          autoComplete="username"
+          label="Nombre completo"
+          placeholder="Juan Pérez"
+          autoComplete="name"
           required
-          hint="Debe ser único y será visible en las salas"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
         />
         <Input
           label="Correo electrónico"
           type="email"
+          placeholder="tu@email.com"
           autoComplete="email"
           required
           value={email}
@@ -94,11 +121,29 @@ export default function RegisterPage() {
         <Input
           label="Contraseña"
           type="password"
+          placeholder="Mínimo 6 caracteres"
           autoComplete="new-password"
           required
-          hint="Mínimo 6 caracteres"
+          minLength={6}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+        />
+
+        <Checkbox
+          checked={acceptedTerms}
+          onChange={(e) => setAcceptedTerms(e.target.checked)}
+          label={
+            <>
+              Acepto los{" "}
+              <span className="font-medium text-brand-700 underline">
+                Términos de servicio
+              </span>{" "}
+              y la{" "}
+              <span className="font-medium text-brand-700 underline">
+                Política de privacidad
+              </span>
+            </>
+          }
         />
 
         {error && (
@@ -110,33 +155,20 @@ export default function RegisterPage() {
           </p>
         )}
 
-        <Button type="submit" isLoading={loading}>
+        <Button type="submit" isLoading={loading} className="mt-1 w-full">
           Crear cuenta
         </Button>
       </form>
 
-      <div className="my-4 flex items-center gap-3" aria-hidden="true">
-        <div className="h-px flex-1 bg-slate-200" />
-        <span className="text-xs uppercase text-slate-500">o</span>
-        <div className="h-px flex-1 bg-slate-200" />
-      </div>
-
-      <GoogleButton
-        type="button"
-        onClick={handleGoogle}
-        isLoading={googleLoading}
-        className="w-full"
-      />
-
-      <p className="mt-4 text-sm text-slate-600">
+      <p className="mt-5 text-center text-sm text-slate-600">
         ¿Ya tienes cuenta?{" "}
         <Link
           to="/login"
-          className="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-900"
+          className="font-medium text-brand-700 hover:text-brand-900 hover:underline"
         >
           Inicia sesión
         </Link>
       </p>
-    </Card>
+    </div>
   );
 }

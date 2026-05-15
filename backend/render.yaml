@@ -2,13 +2,14 @@ services:
   - type: web
     name: miniproyecto2-backend
     runtime: node
-    buildCommand: npm install && npm run build
+    # --include=dev necesario: TypeScript y @types/* están en devDependencies
+    # y NODE_ENV=production los excluiría con un npm install plano.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 3000
+      # PORT lo asigna Render automáticamente, no fijar.
       - key: FIREBASE_API_KEY
         sync: false
       - key: FIREBASE_AUTH_DOMAIN

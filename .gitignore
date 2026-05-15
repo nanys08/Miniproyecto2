@@ -6,5 +6,9 @@ serviceAccountKey.json
 *.log
 .DS_Store
 
+# TypeScript / Vite build caches
+*.tsbuildinfo
+.vite/
+
 # Claude Code session state (no debe ir al repo)
 .claude/

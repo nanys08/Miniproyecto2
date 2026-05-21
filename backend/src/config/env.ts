@@ -3,13 +3,24 @@ dotenv.config();
 
 // CORS_ORIGIN admite una sola URL o varias separadas por coma.
 // Ej.: "http://localhost:5173,https://mi-frontend.vercel.app"
-const parseCorsOrigin = (raw: string | undefined): string | string[] => {
-  if (!raw) return "http://localhost:5173";
-  const list = raw
+//
+// Para que el dev local funcione contra el deploy de producción sin tener
+// que tocar la variable en Render, SIEMPRE agregamos los orígenes locales
+// (Vite + alternativos) a la lista permitida.
+const LOCAL_DEV_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+
+const parseCorsOrigin = (raw: string | undefined): string[] => {
+  const explicit = (raw ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  return list.length === 1 ? list[0]! : list;
+  const merged = [...new Set([...LOCAL_DEV_ORIGINS, ...explicit])];
+  return merged.length > 0 ? merged : LOCAL_DEV_ORIGINS;
 };
 
 export const env = {

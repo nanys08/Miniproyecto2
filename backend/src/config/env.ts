@@ -1,10 +1,21 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// CORS_ORIGIN admite una sola URL o varias separadas por coma.
+// Ej.: "http://localhost:5173,https://mi-frontend.vercel.app"
+const parseCorsOrigin = (raw: string | undefined): string | string[] => {
+  if (!raw) return "http://localhost:5173";
+  const list = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length === 1 ? list[0]! : list;
+};
+
 export const env = {
   port: parseInt(process.env.PORT || "3000", 10),
   nodeEnv: process.env.NODE_ENV || "development",
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  corsOrigin: parseCorsOrigin(process.env.CORS_ORIGIN),
   firebase: {
     apiKey: process.env.FIREBASE_API_KEY!,
     authDomain: process.env.FIREBASE_AUTH_DOMAIN!,

@@ -1,34 +1,57 @@
 import { db, auth } from "../config/firebase";
-import { User, USERS_COLLECTION } from "../models/User";
+import { AuthProvider, User, USERS_COLLECTION } from "../models/User";
+import { AppError, ErrorCode } from "../utils/errors";
 import { logger } from "../utils/logger";
 
-// TS-01: Registro y persistencia de perfil en Firestore
+// TS-01: Registro y persistencia de perfil en Firestore.
+//
+// Concurrencia: usamos una transacción de Firestore para que el chequeo de
+// username y la escritura del doc users/{uid} ocurran de forma atómica.
+// Si dos clientes intentan registrar el mismo username a la vez, solo uno
+// gana — el otro recibe USERNAME_ALREADY_EXISTS.
 export const registerUserProfile = async (
   uid: string,
   username: string,
+  fullName: string,
   email: string,
+  provider: AuthProvider,
   avatar: string = "default_avatar.png"
 ): Promise<User> => {
-  const usernameExists = await isUsernameTaken(username);
-  if (usernameExists) {
-    throw new Error("El nombre de usuario ya está en uso");
-  }
+  const userRef = db.collection(USERS_COLLECTION).doc(uid);
+  const usernameQuery = db
+    .collection(USERS_COLLECTION)
+    .where("username", "==", username)
+    .limit(1);
 
   const newUser: User = {
     uid,
     username,
+    fullName,
     email,
     avatar,
+    provider,
     createdAt: new Date(),
     online: false,
   };
 
-  await db.collection(USERS_COLLECTION).doc(uid).set(newUser);
-  logger.info(`Usuario registrado: ${username} (${uid})`);
+  await db.runTransaction(async (tx) => {
+    const existingDoc = await tx.get(userRef);
+    if (existingDoc.exists) {
+      throw new AppError(ErrorCode.PROFILE_ALREADY_EXISTS, 409);
+    }
+    const usernameSnap = await tx.get(usernameQuery);
+    if (!usernameSnap.empty) {
+      throw new AppError(ErrorCode.USERNAME_ALREADY_EXISTS, 409);
+    }
+    tx.set(userRef, newUser);
+  });
+
+  logger.info(`Usuario registrado (${provider}): ${username} (${uid})`);
   return newUser;
 };
 
-// TS-01: Validación de username único
+// TS-01: Validación de username único (lectura simple, sin transacción).
+// Útil para el endpoint público /check-username; la verdad la dice register.
 export const isUsernameTaken = async (username: string): Promise<boolean> => {
   const snapshot = await db
     .collection(USERS_COLLECTION)

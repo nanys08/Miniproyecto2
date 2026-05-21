@@ -46,4 +46,17 @@ app.get("/api/docs.json", (_req, res) => {
 
 app.use("/api", routes);
 
+// Endpoint raíz informativo — útil cuando alguien abre la URL del backend
+// en el navegador para verificar que está vivo y dónde está la documentación.
+app.get("/", (_req, res) => {
+  res.json({
+    name: "miniproyecto2-backend",
+    status: "ok",
+    env: env.nodeEnv,
+    docs: "/api/docs",
+    openapi: "/api/docs.json",
+    health: "/health",
+  });
+});
+
 export default app;

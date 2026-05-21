@@ -1,8 +1,12 @@
+export type AuthProvider = "password" | "google";
+
 export interface User {
   uid: string;
   username: string;
+  fullName: string;
   email: string;
   avatar: string;
+  provider: AuthProvider;
   createdAt: FirebaseFirestore.Timestamp | Date;
   online: boolean;
 }

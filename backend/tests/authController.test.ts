@@ -1,0 +1,277 @@
+// Tests del authController (TS-01).
+// Mockeamos los services para aislar el controller y verificar:
+//   - Códigos de error estables expuestos al cliente.
+//   - Mapeo correcto a HTTP status.
+//   - Que los errores internos (Firebase, etc.) NO se filtren al cliente.
+
+import type { Response } from "express";
+
+const registerUserProfileMock = jest.fn();
+const getUserProfileMock = jest.fn();
+const isUsernameTakenMock = jest.fn();
+const setUserOnlineStatusMock = jest.fn();
+const revokeUserTokensMock = jest.fn();
+
+jest.mock("../src/services/authService", () => ({
+  registerUserProfile: (...args: unknown[]) => registerUserProfileMock(...args),
+  getUserProfile: (...args: unknown[]) => getUserProfileMock(...args),
+  isUsernameTaken: (...args: unknown[]) => isUsernameTakenMock(...args),
+  setUserOnlineStatus: (...args: unknown[]) => setUserOnlineStatusMock(...args),
+  revokeUserTokens: (...args: unknown[]) => revokeUserTokensMock(...args),
+}));
+
+jest.mock("../src/utils/logger", () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}));
+
+// Tampoco queremos que Firebase Admin intente inicializarse en los tests del
+// controller — los services están mockeados, pero el middleware u otros
+// imports indirectos podrían tocarlo.
+jest.mock("../src/config/firebase", () => ({
+  db: {},
+  auth: { verifyIdToken: jest.fn() },
+}));
+
+import * as authController from "../src/controllers/authController";
+import type { AuthRequest } from "../src/middlewares/authMiddleware";
+import { AppError, ErrorCode } from "../src/utils/errors";
+
+const buildRes = () => {
+  const res: Partial<Response> & {
+    statusCode?: number;
+    body?: unknown;
+  } = {};
+  res.status = jest.fn((code: number) => {
+    res.statusCode = code;
+    return res as Response;
+  }) as unknown as Response["status"];
+  res.json = jest.fn((data: unknown) => {
+    res.body = data;
+    return res as Response;
+  }) as unknown as Response["json"];
+  return res as Response & { statusCode?: number; body?: unknown };
+};
+
+const baseReq = (overrides: Partial<AuthRequest> = {}): AuthRequest =>
+  ({
+    user: { uid: "uid-1", email: "u@u.com" },
+    body: {},
+    params: {},
+    ...overrides,
+  } as AuthRequest);
+
+beforeEach(() => {
+  registerUserProfileMock.mockReset();
+  getUserProfileMock.mockReset();
+  isUsernameTakenMock.mockReset();
+  setUserOnlineStatusMock.mockReset();
+  revokeUserTokensMock.mockReset();
+});
+
+describe("register — validaciones de entrada", () => {
+  it("400 MISSING_FIELDS si falta username, fullName o provider", async () => {
+    const res = buildRes();
+    await authController.register(baseReq({ body: { username: "x" } }), res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      error: ErrorCode.MISSING_FIELDS,
+      message: expect.any(String),
+    });
+  });
+
+  it("400 USERNAME_INVALID si username no cumple la regex", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "ab", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_INVALID });
+  });
+
+  it("400 PROVIDER_INVALID si provider no es 'password' ni 'google'", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "anita", fullName: "Ana", provider: "facebook" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.PROVIDER_INVALID });
+  });
+});
+
+describe("register — propaga AppError del service tal cual", () => {
+  it("409 USERNAME_ALREADY_EXISTS cuando el service lanza ese código", async () => {
+    registerUserProfileMock.mockRejectedValueOnce(
+      new AppError(ErrorCode.USERNAME_ALREADY_EXISTS, 409)
+    );
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "anita", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({
+      error: ErrorCode.USERNAME_ALREADY_EXISTS,
+    });
+  });
+
+  it("409 PROFILE_ALREADY_EXISTS cuando el uid ya tiene perfil", async () => {
+    registerUserProfileMock.mockRejectedValueOnce(
+      new AppError(ErrorCode.PROFILE_ALREADY_EXISTS, 409)
+    );
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "anita", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({
+      error: ErrorCode.PROFILE_ALREADY_EXISTS,
+    });
+  });
+});
+
+describe("register — no filtra errores internos", () => {
+  it("500 INTERNAL_ERROR cuando el service lanza un Error genérico, sin filtrar el mensaje original", async () => {
+    registerUserProfileMock.mockRejectedValueOnce(
+      new Error("FIRESTORE: permission_denied en proyecto X (detalle interno)")
+    );
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "anita", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({
+      error: ErrorCode.INTERNAL_ERROR,
+      message: expect.any(String),
+    });
+    // El detalle interno NO debe haberse filtrado al cliente.
+    expect(JSON.stringify(res.body)).not.toMatch(/FIRESTORE|permission_denied/i);
+  });
+});
+
+describe("register — caso exitoso", () => {
+  it("201 y devuelve el user creado", async () => {
+    const fakeUser = {
+      uid: "uid-1",
+      username: "anita",
+      fullName: "Ana",
+      email: "u@u.com",
+      avatar: "default_avatar.png",
+      provider: "password",
+      online: false,
+      createdAt: new Date(),
+    };
+    registerUserProfileMock.mockResolvedValueOnce(fakeUser);
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "anita", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(201);
+    expect(res.body).toEqual({ user: fakeUser });
+  });
+});
+
+describe("getMe", () => {
+  it("200 con el perfil cuando existe", async () => {
+    getUserProfileMock.mockResolvedValueOnce({ uid: "uid-1", username: "x" });
+    const res = buildRes();
+    await authController.getMe(baseReq(), res);
+    expect(res.statusCode).toBeUndefined(); // no se llamó status (default 200)
+    expect(res.body).toEqual({ user: { uid: "uid-1", username: "x" } });
+  });
+
+  it("404 PROFILE_NOT_FOUND cuando no existe", async () => {
+    getUserProfileMock.mockResolvedValueOnce(null);
+    const res = buildRes();
+    await authController.getMe(baseReq(), res);
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toMatchObject({ error: ErrorCode.PROFILE_NOT_FOUND });
+  });
+
+  it("500 INTERNAL_ERROR si el service falla, sin filtrar el detalle", async () => {
+    getUserProfileMock.mockRejectedValueOnce(
+      new Error("INTERNAL: stack trace privado")
+    );
+    const res = buildRes();
+    await authController.getMe(baseReq(), res);
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toMatchObject({ error: ErrorCode.INTERNAL_ERROR });
+    expect(JSON.stringify(res.body)).not.toMatch(/stack trace privado/);
+  });
+});
+
+describe("logout", () => {
+  it("204 sin body, marca offline y revoca tokens del uid del request", async () => {
+    setUserOnlineStatusMock.mockResolvedValueOnce(undefined);
+    revokeUserTokensMock.mockResolvedValueOnce(undefined);
+
+    const res = buildRes();
+    await authController.logout(baseReq(), res);
+
+    expect(setUserOnlineStatusMock).toHaveBeenCalledWith("uid-1", false);
+    expect(revokeUserTokensMock).toHaveBeenCalledWith("uid-1");
+    expect((res.status as jest.Mock).mock.calls[0]?.[0]).toBe(204);
+  });
+
+  it("500 INTERNAL_ERROR si revokeUserTokens falla, sin filtrar el detalle", async () => {
+    setUserOnlineStatusMock.mockResolvedValueOnce(undefined);
+    revokeUserTokensMock.mockRejectedValueOnce(
+      new Error("INTERNAL: Firebase revoke failed XYZ-token-id")
+    );
+    const res = buildRes();
+    await authController.logout(baseReq(), res);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toMatchObject({ error: ErrorCode.INTERNAL_ERROR });
+    expect(JSON.stringify(res.body)).not.toMatch(/XYZ-token-id/);
+  });
+});
+
+describe("checkUsername", () => {
+  it("400 USERNAME_INVALID si el path param no cumple regex", async () => {
+    const res = buildRes();
+    await authController.checkUsername(
+      baseReq({ params: { username: "ab" } as Record<string, string> }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_INVALID });
+    expect(isUsernameTakenMock).not.toHaveBeenCalled();
+  });
+
+  it("devuelve { available: true } cuando el username está libre", async () => {
+    isUsernameTakenMock.mockResolvedValueOnce(false);
+    const res = buildRes();
+    await authController.checkUsername(
+      baseReq({ params: { username: "libre1" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({ available: true });
+  });
+
+  it("devuelve { available: false } cuando está tomado", async () => {
+    isUsernameTakenMock.mockResolvedValueOnce(true);
+    const res = buildRes();
+    await authController.checkUsername(
+      baseReq({ params: { username: "tomado" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({ available: false });
+  });
+});

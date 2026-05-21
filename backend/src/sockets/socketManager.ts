@@ -21,18 +21,21 @@ const connectedUsers = new Map<
 >();
 
 export const initSocket = (io: Server): void => {
-  // Middleware Socket.IO: verificar Firebase ID Token en handshake
+  // Middleware Socket.IO: verificar Firebase ID Token en el handshake.
+  // checkRevoked=true alinea con el middleware REST: si el backend hace
+  // revokeUserTokens, los sockets que reintenten quedan fuera de inmediato.
   io.use(async (socket, next) => {
     const token = socket.handshake.auth.token as string | undefined;
     if (!token) {
-      return next(new Error("Token requerido"));
+      return next(new Error("MISSING_TOKEN"));
     }
     try {
-      const decoded = await auth.verifyIdToken(token);
+      const decoded = await auth.verifyIdToken(token, true);
       socket.data.uid = decoded.uid;
       next();
-    } catch {
-      next(new Error("Token inválido"));
+    } catch (err) {
+      logger.warn("Handshake rechazado", err);
+      next(new Error("INVALID_TOKEN"));
     }
   });
 

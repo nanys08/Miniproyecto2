@@ -33,13 +33,19 @@ const router = Router();
  *                 user:
  *                   $ref: '#/components/schemas/User'
  *       400:
- *         description: Username faltante o ya en uso
+ *         description: Campos faltantes o con formato inválido
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: Token ausente o inválido
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Username ya en uso o perfil ya existe
  *         content:
  *           application/json:
  *             schema:
@@ -79,6 +85,34 @@ router.post("/register", verifyToken, authController.register);
  *               $ref: '#/components/schemas/Error'
  */
 router.get("/me", verifyToken, authController.getMe);
+
+/**
+ * @openapi
+ * /api/auth/logout:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Cierra sesión server-side (revoca todos los refresh tokens)
+ *     description: |
+ *       Revoca los refresh tokens del usuario y lo marca offline en Firestore.
+ *       El frontend debería además llamar a `firebase.auth().signOut()` localmente
+ *       para limpiar el estado del SDK cliente.
+ *
+ *       Útil para "cerrar sesión en todos los dispositivos". Tras esta llamada,
+ *       cualquier ID Token previamente emitido será rechazado por `verifyToken`
+ *       (porque el middleware usa `checkRevoked: true`).
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       204:
+ *         description: Sesión cerrada
+ *       401:
+ *         description: Token ausente o inválido
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/logout", verifyToken, authController.logout);
 
 /**
  * @openapi

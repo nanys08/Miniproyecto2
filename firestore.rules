@@ -1,0 +1,68 @@
+rules_version = '2';
+
+// Reglas Firestore — Mini-proyecto 2 "Salón de Estudio Colaborativo"
+// TS-01: Autenticación / perfiles
+//
+// Política base:
+//   - Todo el acceso requiere request.auth (token Firebase válido).
+//   - El backend (Admin SDK) bypasea estas reglas: la API REST sigue siendo
+//     la fuente de verdad para validaciones complejas (username único,
+//     formato, provider, etc.). Estas reglas son la red de seguridad por si
+//     el cliente intentara hablarle directo a Firestore.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- users/{uid} ----------
+    match /users/{uid} {
+      // Cualquier usuario autenticado puede leer perfiles (presencia, lista
+      // de salas, avatares). Si más adelante se quiere ocultar email, mover
+      // datos sensibles a un subcolección privada.
+      allow read: if request.auth != null;
+
+      // Solo el dueño del UID puede crear su propio doc, y solo con los
+      // campos exactos del esquema. username único se valida en el backend.
+      allow create: if request.auth != null
+                    && request.auth.uid == uid
+                    && request.resource.data.uid == uid
+                    && request.resource.data.keys().hasAll([
+                         'uid','username','fullName','email','avatar',
+                         'provider','createdAt','online'
+                       ])
+                    && request.resource.data.provider in ['password','google']
+                    && request.resource.data.username is string
+                    && request.resource.data.username.size() >= 3
+                    && request.resource.data.username.size() <= 20;
+
+      // Solo el dueño puede actualizar, y no puede cambiar uid/username/
+      // email/provider/createdAt desde el cliente (esos viajan por la API).
+      allow update: if request.auth != null
+                    && request.auth.uid == uid
+                    && request.resource.data.uid == resource.data.uid
+                    && request.resource.data.username == resource.data.username
+                    && request.resource.data.email == resource.data.email
+                    && request.resource.data.provider == resource.data.provider
+                    && request.resource.data.createdAt == resource.data.createdAt;
+
+      // No se permite borrar perfiles desde el cliente.
+      allow delete: if false;
+    }
+
+    // ---------- rooms/{roomId} (placeholder Sprint 1) ----------
+    match /rooms/{roomId} {
+      allow read: if request.auth != null;
+      // Escritura solo vía backend (Admin SDK).
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if request.auth != null;
+        allow write: if false;
+      }
+    }
+
+    // Por defecto, denegar todo lo no contemplado arriba.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

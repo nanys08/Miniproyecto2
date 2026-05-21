@@ -235,6 +235,7 @@ URL esperada: `https://miniproyecto2-backend.onrender.com`
 | Despliegue Render                                             | `render.yaml`                                 |
 | Arquitectura documentada                                      | Este README + `docs/sockets.md` + `docs/flows.md` |
 | Documentación API (Swagger)                 | `/api/docs` con `swagger-jsdoc`              |
+| Contrato de integración con frontend        | **[`docs/contrato-frontend.md`](docs/contrato-frontend.md)** — URLs, payloads, errores, Socket.IO, fetch helper, checklist |
 
 ---
 
@@ -242,7 +243,7 @@ URL esperada: `https://miniproyecto2-backend.onrender.com`
 
 | Tarea | Soporte actual                                                                 |
 |-------|--------------------------------------------------------------------------------|
-| T1 — Identidad y salas | `POST /auth/register`, `GET /auth/me`, `GET /auth/check-username`. Salas modeladas en `models/Room.ts` (CRUD en Sprint 1). |
+| T1 — Identidad y salas | `POST /auth/register`, `GET /auth/me`, `POST /auth/logout`, `GET /auth/check-username`. Salas modeladas en `models/Room.ts` (CRUD en Sprint 1). |
 | T2 — Chat y historial  | Eventos `send-message` / `receive-message`. **Persistencia en Firestore pendiente para Sprint 1.** |
 | T3 — Audio/Video       | Signaling SDP/ICE listo (`webrtc-offer/answer`, `ice-candidate`). Implementación cliente en Sprint 2+. |
 | T4 — Compartición de pantalla | Mismo signaling que T3; el cliente usa `getDisplayMedia()` y reemplaza track. |

@@ -17,9 +17,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check PAT is set
+        env:
+          PAT: ${{ secrets.SANTIS_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "ERROR: SANTIS_PAT secret is empty"
+            exit 1
+          fi
+          echo "PAT length: ${#PAT}"
+
       - name: Push to Santis098/miniproyecto2
         env:
           PAT: ${{ secrets.SANTIS_PAT }}
         run: |
-          git remote add santis https://oauth2:${PAT}@github.com/Santis098/miniproyecto2.git
+          git config --global credential.helper '!f() { echo "username=oauth2"; echo "password='"$PAT"'"; }; f'
+          git remote add santis https://github.com/Santis098/miniproyecto2.git
           git push santis main --force

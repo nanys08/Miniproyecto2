@@ -10,6 +10,7 @@ env:
 
 jobs:
   sync:
+    if: github.repository == 'nanys08/Miniproyecto2'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

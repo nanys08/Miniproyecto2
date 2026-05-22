@@ -17,11 +17,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Push to Santis098/miniproyecto2
+      - name: Rewrite authors and push to Santis098/miniproyecto2
         env:
           PAT: ${{ secrets.SANTIS_PAT }}
         run: |
           git config --local --unset http.https://github.com/.extraheader || true
+
+          git filter-branch -f --env-filter '
+            if [ "$GIT_AUTHOR_NAME" != "Santis098" ]; then
+              export GIT_AUTHOR_NAME="Santis098"
+              export GIT_AUTHOR_EMAIL="200251432+Santis098@users.noreply.github.com"
+              export GIT_COMMITTER_NAME="Santis098"
+              export GIT_COMMITTER_EMAIL="200251432+Santis098@users.noreply.github.com"
+            fi
+          ' -- --all
+
           echo "https://oauth2:${PAT}@github.com" > ~/.git-credentials
           git config --global credential.helper store
           git remote add santis https://github.com/Santis098/miniproyecto2.git

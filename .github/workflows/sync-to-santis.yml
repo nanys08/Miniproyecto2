@@ -22,4 +22,4 @@ jobs:
           PAT: ${{ secrets.SANTIS_PAT }}
         run: |
           git remote add santis https://Santis098:${PAT}@github.com/Santis098/miniproyecto2.git
-          git push santis main --force
+          git push santis main --force 2>&1 || (echo "EXIT CODE: $?" && exit 1)

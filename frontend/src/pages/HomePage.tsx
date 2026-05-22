@@ -1,23 +1,47 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import Logo from "@/components/Logo";
 
-// Landing page pública. Hero con dos CTAs hacia login/register.
+// Imágenes de Unsplash que rotan cada 6 segundos
+const HERO_IMAGES = [
+  "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800&q=80", // estudiantes colaborando
+  "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&q=80", // laptop estudio
+  "https://images.unsplash.com/photo-1513258496099-48168024aec0?w=800&q=80", // biblioteca
+  "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=800&q=80", // estudiando
+  "https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=800&q=80", // grupo estudio
+];
+
 export default function HomePage() {
+  const [imgIndex, setImgIndex] = useState(0);
+  const [fade, setFade] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFade(false);
+      setTimeout(() => {
+        setImgIndex((i) => (i + 1) % HERO_IMAGES.length);
+        setFade(true);
+      }, 400);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white">
-      <header className="border-b border-slate-200 bg-white/70 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+    <div className="min-h-screen bg-slate-50">
+      {/* Navbar */}
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Logo size="md" />
-          <nav aria-label="Acceso" className="flex items-center gap-2">
+          <nav aria-label="Acceso" className="flex items-center gap-3">
             <Link
               to="/login"
-              className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:ring-brand-600"
+              className="rounded-lg border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
             >
               Iniciar sesión
             </Link>
             <Link
               to="/register"
-              className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
+              className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
             >
               Registrarse
             </Link>
@@ -25,89 +49,61 @@ export default function HomePage() {
         </div>
       </header>
 
+      {/* Hero */}
       <main
         id="main-content"
         tabIndex={-1}
-        className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-12 md:grid-cols-2 md:py-20"
+        className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 md:grid-cols-2 md:py-24"
       >
+        {/* Texto izquierda */}
         <div>
-          <h1 className="text-4xl font-bold leading-tight text-slate-900 sm:text-5xl">
+          <h1 className="text-5xl font-bold leading-tight text-slate-900 sm:text-6xl">
             Salas de estudio
             <br />
             colaborativas
             <br />
-            <span className="text-brand-600">en tiempo real</span>
+            en tiempo real
           </h1>
-          <p className="mt-6 max-w-md text-lg text-slate-600">
+          <p className="mt-6 max-w-md text-lg text-slate-500">
             Estudia con tus compañeros, comparte pantalla, chat y
             videollamada todo en un solo lugar.
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              to="/login"
-              className="rounded-lg bg-brand-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-brand-700 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
-            >
-              Iniciar sesión
-            </Link>
+          <div className="mt-10">
             <Link
               to="/register"
-              className="rounded-lg border border-brand-600 bg-white px-6 py-3 text-base font-medium text-brand-700 hover:bg-brand-50 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
+              className="inline-block rounded-2xl bg-blue-600 px-8 py-4 text-base font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
             >
-              Registrarse
+              Crear sala gratis
             </Link>
           </div>
         </div>
 
-        {/* Ilustración decorativa */}
+        {/* Imagen derecha con fade */}
         <div
           aria-hidden="true"
-          className="relative hidden h-80 items-center justify-center md:flex"
+          className="relative hidden md:block"
         >
-          <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100" />
-          <div className="relative grid grid-cols-2 gap-4 p-8">
-            <div className="flex h-32 w-32 items-center justify-center rounded-2xl bg-white shadow-lg">
-              <svg viewBox="0 0 24 24" fill="none" className="h-12 w-12 text-brand-600">
-                <path
-                  d="M15 10l4.5-2.5v9L15 14M4 6h11v12H4z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-            <div className="flex h-32 w-32 items-center justify-center rounded-2xl bg-white shadow-lg">
-              <svg viewBox="0 0 24 24" fill="none" className="h-12 w-12 text-purple-500">
-                <path
-                  d="M8 12h8M8 8h8m-9 8.5L4 20V5a1 1 0 011-1h14a1 1 0 011 1v11a1 1 0 01-1 1H7z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-            <div className="flex h-32 w-32 items-center justify-center rounded-2xl bg-white shadow-lg">
-              <svg viewBox="0 0 24 24" fill="none" className="h-12 w-12 text-pink-500">
-                <path
-                  d="M16 11V7a4 4 0 00-8 0v4m-2 0h12a1 1 0 011 1v8a1 1 0 01-1 1H6a1 1 0 01-1-1v-8a1 1 0 011-1z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
-            <div className="flex h-32 w-32 items-center justify-center rounded-2xl bg-white shadow-lg">
-              <svg viewBox="0 0 24 24" fill="none" className="h-12 w-12 text-orange-500">
-                <path
-                  d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6 0a4 4 0 100-8 4 4 0 000 8z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
+          <div className="overflow-hidden rounded-3xl bg-white shadow-xl">
+            <img
+              key={imgIndex}
+              src={HERO_IMAGES[imgIndex]}
+              alt=""
+              className="h-96 w-full object-cover transition-opacity duration-400"
+              style={{ opacity: fade ? 1 : 0, transition: "opacity 0.4s ease" }}
+            />
+          </div>
+          {/* Indicadores de imagen */}
+          <div className="mt-3 flex justify-center gap-1.5">
+            {HERO_IMAGES.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => { setFade(false); setTimeout(() => { setImgIndex(i); setFade(true); }, 400); }}
+                className={`h-1.5 rounded-full transition-all ${
+                  i === imgIndex ? "w-6 bg-blue-600" : "w-1.5 bg-slate-300"
+                }`}
+                aria-label={`Imagen ${i + 1}`}
+              />
+            ))}
           </div>
         </div>
       </main>

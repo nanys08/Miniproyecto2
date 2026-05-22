@@ -21,14 +21,19 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    if (!email.trim() || !password.trim()) {
+      setError("Completa todos los campos");
+      setLoading(false);
+      return;
+    }
+
     try {
       await login(email, password);
       show("success", "Sesión iniciada");
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No se pudo iniciar sesión"
-      );
+      setError("Correo o Contraseña Incorrecta");
     } finally {
       setLoading(false);
     }

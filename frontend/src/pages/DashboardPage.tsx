@@ -50,9 +50,7 @@ export default function DashboardPage() {
   const [openCreate, setOpenCreate] = useState(false);
   const [roomName, setRoomName] = useState("");
 
-  const firstName =
-    user?.email?.split("@")[0]?.split(".")[0] ?? "estudiante";
-  const capitalized = firstName.charAt(0).toUpperCase() + firstName.slice(1);
+  const displayName = user?.username ?? user?.displayName ?? user?.email?.split("@")[0] ?? "estudiante";
 
   function handleCreateRoom() {
     setOpenCreate(false);
@@ -66,7 +64,7 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">
-            ¡Bienvenido de nuevo, {capitalized}!
+            ¡Bienvenido de nuevo, @{displayName}!
           </h1>
           <p className="mt-1 text-slate-600">¿Qué vamos a estudiar hoy?</p>
         </div>

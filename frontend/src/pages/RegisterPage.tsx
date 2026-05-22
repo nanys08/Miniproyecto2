@@ -1,174 +1,383 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Input from "@/components/Input";
 import Button from "@/components/Button";
-import Checkbox from "@/components/Checkbox";
 import GoogleButton from "@/components/GoogleButton";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
+import { api } from "@/services/api";
+
+const AVATARS = [
+  "/avatars/avatar1.png",
+  "/avatars/avatar2.png",
+  "/avatars/avatar3.png",
+  "/avatars/avatar4.png",
+  "/avatars/avatar5.png",
+  "/avatars/avatar6.png",
+  "/avatars/avatar7.png",
+  "/avatars/avatar8.png",
+];
+
+const USERNAME_REGEX = /^[a-zA-Z0-9_.]{3,10}$/;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
+
+type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
 export default function RegisterPage() {
-  const { register, loginWithGoogle, demoMode } = useAuth();
+  const { register, loginWithGoogle } = useAuth();
   const { show } = useToast();
   const navigate = useNavigate();
+
+  const [avatar, setAvatar] = useState<number | null>(null);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+
+  const [avatarError, setAvatarError] = useState("");
+  const [fullNameError, setFullNameError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [usernameError, setUsernameError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [termsError, setTermsError] = useState("");
+  const [globalError, setGlobalError] = useState("");
+
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [googleUsername, setGoogleUsername] = useState("");
+  const [googleUsernameStatus, setGoogleUsernameStatus] = useState<UsernameStatus>("idle");
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleUsernameError, setGoogleUsernameError] = useState("");
+
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!username) { setUsernameStatus("idle"); return; }
+    if (!USERNAME_REGEX.test(username)) { setUsernameStatus("invalid"); return; }
+    setUsernameStatus("checking");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await api.get<{ available: boolean }>(`/auth/check-username/${username}`);
+        setUsernameStatus(res.available ? "available" : "taken");
+      } catch { setUsernameStatus("idle"); }
+    }, 500);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [username]);
+
+  function validateAll(): boolean {
+    let valid = true;
+    if (avatar === null) { setAvatarError("Elige un avatar"); valid = false; } else setAvatarError("");
+    if (!fullName.trim()) { setFullNameError("Ingresa tu nombre completo"); valid = false; } else setFullNameError("");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailError("Ingresa un correo electrónico válido"); valid = false; } else setEmailError("");
+    if (!USERNAME_REGEX.test(username)) { setUsernameError("Entre 3 y 10 caracteres"); valid = false; } else setUsernameError("");
+    if (usernameStatus === "taken") { setUsernameError("Username ya existe"); valid = false; }
+    if (!PASSWORD_REGEX.test(password)) { setPasswordError("Mínimo 8 caracteres, 1 mayúscula, 1 número y 1 símbolo"); valid = false; } else setPasswordError("");
+    if (!acceptedTerms) { setTermsError("Debes aceptar los términos"); valid = false; } else setTermsError("");
+    return valid;
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError(null);
-    if (!acceptedTerms) {
-      setError("Debes aceptar los términos de servicio para continuar");
-      return;
-    }
+    setGlobalError("");
+    if (!validateAll()) return;
+    if (usernameStatus === "checking") return;
     setLoading(true);
     try {
-      // El backend usa "username" como handle único; mandamos el nombre completo.
-      await register(email, password, fullName);
-      show("success", "Cuenta creada correctamente");
+      await register(email, password, username, fullName, AVATARS[avatar!]);
+      show("success", "¡Cuenta creada exitosamente!");
       navigate("/dashboard", { replace: true });
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No se pudo crear la cuenta"
-      );
+    } catch {
+      setGlobalError("Ocurrió un error de conexión, inténtalo nuevamente");
     } finally {
       setLoading(false);
     }
   }
 
   async function handleGoogle() {
-    setError(null);
+    setGlobalError("");
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
-      show("success", "Cuenta creada con Google");
+      show("success", "Inicio de sesión exitoso");
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudo iniciar sesión con Google"
-      );
+      if (err instanceof Error && err.message === "needs-username") {
+        setShowGoogleModal(true);
+      } else {
+        setGlobalError("No fue posible iniciar sesión con Google");
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
+  async function handleGoogleUsernameSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!USERNAME_REGEX.test(googleUsername)) { setGoogleUsernameError("Username inválido"); return; }
+    if (googleUsernameStatus !== "available") { setGoogleUsernameError("Elige un username disponible"); return; }
+    setGoogleLoading(true);
+    try {
+      await api.post("/auth/register", { username: googleUsername, fullName: sessionStorage.getItem("google-displayName") ?? "Usuario", avatar: AVATARS[0], provider: "google" });
+      show("success", "¡Cuenta creada exitosamente!");
+      setShowGoogleModal(false);
+      navigate("/dashboard", { replace: true });
+    } catch {
+      setGoogleUsernameError("Error al guardar el username, intenta de nuevo");
     } finally {
       setGoogleLoading(false);
     }
   }
 
   return (
-    <div className="rounded-2xl bg-white p-8 shadow-sm">
-      <div className="flex flex-col items-center gap-2">
-        <Logo size="lg" showText={false} />
-        <span className="mt-1 text-2xl font-bold text-slate-900">
-          EstudioColab
-        </span>
-      </div>
+    <>
+      {/* ¡CAMBIO CLAVE AQUÍ! 
+        Usamos fixed e inset-0 para romper cualquier layout roto del padre 
+        y asegurar que ocupe TODA la pantalla del navegador de forma limpia.
+      */}
+      <div className="fixed inset-0 w-screen h-screen bg-slate-50 overflow-y-auto flex items-start justify-center py-12 px-4 box-border z-10">
+        
+        {/* Card contenedor con ancho estricto e independiente para que no se deje aplastar */}
+        <div className="w-full max-w-[850px] my-auto bg-white rounded-2xl p-6 md:p-10 shadow-[0_4px_25px_rgba(0,0,0,0.04)] border border-slate-100 box-border block text-left">
 
-      <div className="mt-6 text-center">
-        <h1 className="text-2xl font-bold text-slate-900">Crea tu cuenta</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Únete y empieza a estudiar en equipo
-        </p>
-      </div>
+          {/* Logo superior izquierdo */}
+          <div className="flex items-center gap-3 mb-6 w-full">
+            <Logo size="lg" showText={false} />
+            <span className="text-xl font-bold text-slate-900 tracking-tight">EstudioColab</span>
+          </div>
 
-      {demoMode && (
-        <p
-          role="status"
-          className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900"
-        >
-          Modo demo: la cuenta se guarda solo en este navegador.
-        </p>
-      )}
+          {/* Títulos Encabezado */}
+          <div className="text-center mb-6 w-full">
+            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Crea tu cuenta</h1>
+            <p className="mt-1 text-sm text-slate-500">Únete y empieza a estudiar en equipo</p>
+          </div>
 
-      <div className="mt-6">
-        <GoogleButton
-          type="button"
-          onClick={handleGoogle}
-          isLoading={googleLoading}
-          className="w-full !bg-white !border !border-slate-300 !text-slate-900 hover:!bg-slate-50"
-        />
-      </div>
+          {/* Google Button */}
+          <div className="max-w-md mx-auto mb-6 w-full">
+            <GoogleButton
+              type="button"
+              onClick={handleGoogle}
+              isLoading={googleLoading}
+              className="w-full !bg-white !border !border-slate-200 !text-slate-800 hover:!bg-slate-50 !py-3 !text-sm !rounded-xl"
+            />
+          </div>
 
-      <div className="my-5 flex items-center gap-3" aria-hidden="true">
-        <div className="h-px flex-1 bg-slate-200" />
-        <span className="text-xs text-slate-500">o</span>
-        <div className="h-px flex-1 bg-slate-200" />
-      </div>
+          {/* Separador "o" */}
+          <div className="my-6 flex items-center gap-3 w-full" aria-hidden="true">
+            <div className="h-px flex-1 bg-slate-200" />
+            <span className="text-sm text-slate-400">o</span>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
-        <Input
-          label="Nombre completo"
-          placeholder="Juan Pérez"
-          autoComplete="name"
-          required
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-        />
-        <Input
-          label="Correo electrónico"
-          type="email"
-          placeholder="tu@email.com"
-          autoComplete="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <Input
-          label="Contraseña"
-          type="password"
-          placeholder="Mínimo 6 caracteres"
-          autoComplete="new-password"
-          required
-          minLength={6}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+          {globalError && (
+            <p role="alert" aria-live="assertive"
+              className="mb-4 flex items-center gap-1.5 text-sm text-red-700 justify-center w-full">
+              <span aria-hidden="true">⚠</span> {globalError}
+            </p>
+          )}
 
-        <Checkbox
-          checked={acceptedTerms}
-          onChange={(e) => setAcceptedTerms(e.target.checked)}
-          label={
-            <>
-              Acepto los{" "}
-              <span className="font-medium text-brand-700 underline">
-                Términos de servicio
-              </span>{" "}
-              y la{" "}
-              <span className="font-medium text-brand-700 underline">
-                Política de privacidad
-              </span>
-            </>
-          }
-        />
+          <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-6 w-full box-border">
 
-        {error && (
-          <p
-            role="alert"
-            className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
-          >
-            {error}
+            {/* Sección Avatares - Forzado en CSS puro para evitar fallos con los layouts externos */}
+            <fieldset className="w-full block box-border">
+              <legend className="mb-4 text-base font-bold text-slate-900">Avatares</legend>
+              {avatarError && (
+                <p role="alert" className="mb-2 text-sm text-red-600">⚠ {avatarError}</p>
+              )}
+              
+              {/* Estructura grid de 8 columnas inquebrantable */}
+              <div
+                className={`grid grid-cols-8 gap-2 md:gap-3 w-full items-end ${avatarError ? "ring-2 ring-red-400 rounded-xl p-2" : ""}`}
+                role="radiogroup"
+                aria-label="Selecciona tu avatar"
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}
+              >
+                {AVATARS.map((src, i) => (
+                  <div key={i} className="flex flex-col items-center w-full box-border">
+                    {/* Número arriba */}
+                    <span className="text-sm font-bold text-slate-900 mb-1.5 block text-center">
+                      {i + 1}
+                    </span>
+                    
+                    {/* Botón del Avatar */}
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={avatar === i}
+                      aria-label={`Avatar ${i + 1}`}
+                      onClick={() => { setAvatar(i); setAvatarError(""); }}
+                      className={`relative w-full aspect-square rounded-xl overflow-hidden transition-all focus-visible:ring-2 focus-visible:ring-blue-500 block bg-slate-50
+                        ${avatar === i
+                          ? "ring-4 ring-blue-400 shadow-sm"
+                          : "ring-1 ring-slate-200 hover:ring-slate-300"
+                        }`}
+                    >
+                      <img
+                        src={src}
+                        alt={`Avatar ${i + 1}`}
+                        className="w-full h-full object-cover block"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                          (e.target as HTMLImageElement).parentElement!.style.background = "#e2e8f0";
+                        }}
+                      />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </fieldset>
+
+            {/* Nombre completo + Correo electrónico en dos columnas reales */}
+            <div className="grid grid-cols-2 gap-5 w-full" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+              <Input
+                label="Nombre completo"
+                placeholder="Juan Pérez"
+                autoComplete="name"
+                value={fullName}
+                onChange={(e) => { setFullName(e.target.value); setFullNameError(""); }}
+                error={fullNameError}
+              />
+              <Input
+                label="Correo electrónico"
+                type="email"
+                placeholder="tu@email.com"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); setEmailError(""); }}
+                error={emailError}
+              />
+            </div>
+
+            {/* Username + Contraseña en dos columnas reales */}
+            <div className="grid grid-cols-2 gap-5 w-full" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+              <div className="flex flex-col gap-1 w-full">
+                <Input
+                  label="Username"
+                  placeholder="Mínimo 4 caracteres"
+                  autoComplete="username"
+                  value={username}
+                  onChange={(e) => { setUsername(e.target.value); setUsernameError(""); }}
+                  error={usernameError}
+                />
+                {!usernameError && usernameStatus === "available" && (
+                  <p className="text-xs text-green-600 font-medium" role="status" aria-live="polite">✅ Disponible</p>
+                )}
+                {!usernameError && usernameStatus === "taken" && (
+                  <p className="text-xs text-amber-600 font-medium" role="status" aria-live="polite">⚠ Ya existe</p>
+                )}
+                {!usernameError && usernameStatus === "checking" && (
+                  <p className="text-xs text-slate-400" role="status" aria-live="polite">Verificando...</p>
+                )}
+              </div>
+              <Input
+                label="Contraseña"
+                type="password"
+                placeholder="Mínimo 6 caracteres"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setPasswordError(""); }}
+                error={passwordError}
+              />
+            </div>
+
+            {/* Términos y condiciones */}
+            <div className="mt-2 w-full">
+              <label className="flex items-start gap-2.5 text-sm text-slate-600 cursor-pointer w-full">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => { setAcceptedTerms(e.target.checked); setTermsError(""); }}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                  aria-describedby={termsError ? "terms-error" : undefined}
+                />
+                <span className="leading-tight">
+                  Acepto los{" "}
+                  <Link to="/terms" className="text-blue-600 hover:underline font-medium">Términos de servicio</Link>
+                  {" "}y la{" "}
+                  <Link to="/privacy" className="text-blue-600 hover:underline font-medium">Política de privacidad</Link>
+                </span>
+              </label>
+              {termsError && (
+                <p id="terms-error" role="alert" className="mt-1 text-xs text-red-600">{termsError}</p>
+              )}
+            </div>
+
+            <Button type="submit" isLoading={loading} className="w-full !py-3.5 !text-base !rounded-xl font-bold mt-2">
+              Crear cuenta
+            </Button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-slate-500 w-full">
+            ¿Ya tienes cuenta?{" "}
+            <Link to="/login" className="font-semibold text-blue-600 hover:underline">
+              Inicia sesión
+            </Link>
           </p>
-        )}
 
-        <Button type="submit" isLoading={loading} className="mt-1 w-full">
-          Crear cuenta
-        </Button>
-      </form>
+          <p className="mt-4 text-center text-xs text-slate-400 w-full">
+            Seguro • Accesible • Para estudiantes
+          </p>
+        </div>
+      </div>
 
-      <p className="mt-5 text-center text-sm text-slate-600">
-        ¿Ya tienes cuenta?{" "}
-        <Link
-          to="/login"
-          className="font-medium text-brand-700 hover:text-brand-900 hover:underline"
+      {/* Modal username para Google */}
+      {showGoogleModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="google-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
         >
-          Inicia sesión
-        </Link>
-      </p>
-    </div>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h2 id="google-modal-title" className="text-lg font-bold text-slate-900">
+              Completa tu perfil
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">Elige un username único para tu cuenta</p>
+            <form onSubmit={handleGoogleUsernameSubmit} className="mt-4 flex flex-col gap-3" noValidate>
+              <div>
+                <Input
+                  label="Username"
+                  placeholder="ej. juanp2026"
+                  value={googleUsername}
+                  onChange={(e) => {
+                    setGoogleUsername(e.target.value);
+                    setGoogleUsernameError("");
+                    if (debounceRef.current) clearTimeout(debounceRef.current);
+                    if (USERNAME_REGEX.test(e.target.value)) {
+                      setGoogleUsernameStatus("checking");
+                      debounceRef.current = setTimeout(async () => {
+                        try {
+                          const res = await api.get<{ available: boolean }>(`/auth/check-username/${e.target.value}`);
+                          setGoogleUsernameStatus(res.available ? "available" : "taken");
+                        } catch { setGoogleUsernameStatus("idle"); }
+                      }, 500);
+                    } else {
+                      setGoogleUsernameStatus("invalid");
+                    }
+                  }}
+                  error={googleUsernameError}
+                />
+                {!googleUsernameError && googleUsernameStatus === "available" && (
+                  <p className="mt-1 text-xs text-green-600" role="status" aria-live="polite">✅ Disponible</p>
+                )}
+                {!googleUsernameError && googleUsernameStatus === "taken" && (
+                  <p className="mt-1 text-xs text-amber-600" role="status" aria-live="polite">⚠ Username ocupado</p>
+                )}
+              </div>
+              {googleUsernameError && (
+                <p role="alert" className="text-xs text-red-600">{googleUsernameError}</p>
+              )}
+              <Button type="submit" isLoading={googleLoading} className="w-full !rounded-xl">
+                Guardar y continuar
+              </Button>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

@@ -18,6 +18,8 @@ jobs:
           fetch-depth: 0
 
       - name: Push to Santis098/miniproyecto2
+        env:
+          PAT: ${{ secrets.SANTIS_PAT }}
         run: |
-          git remote add santis https://x-access-token:${{ secrets.SANTIS_PAT }}@github.com/Santis098/miniproyecto2.git
+          git remote add santis https://Santis098:${PAT}@github.com/Santis098/miniproyecto2.git
           git push santis main --force

@@ -21,7 +21,7 @@ jobs:
         env:
           PAT: ${{ secrets.SANTIS_PAT }}
         run: |
-          git config --global --unset http.https://github.com/.extraheader || true
+          git config --local --unset http.https://github.com/.extraheader || true
           echo "https://oauth2:${PAT}@github.com" > ~/.git-credentials
           git config --global credential.helper store
           git remote add santis https://github.com/Santis098/miniproyecto2.git

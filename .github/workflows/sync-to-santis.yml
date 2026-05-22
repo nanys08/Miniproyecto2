@@ -1,0 +1,20 @@
+name: Sync to Santis098/miniproyecto2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Santis098/miniproyecto2
+        run: |
+          git remote add santis https://x-access-token:${{ secrets.SANTIS_PAT }}@github.com/Santis098/miniproyecto2.git
+          git push santis main --force

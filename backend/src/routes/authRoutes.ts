@@ -142,4 +142,41 @@ router.post("/logout", verifyToken, authController.logout);
  */
 router.get("/check-username/:username", authController.checkUsername);
 
+/**
+ * @openapi
+ * /api/auth/check-email/{email}:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Verifica si un correo ya está registrado en Firebase Auth
+ *     description: |
+ *       Endpoint público. Útil para detectar antes del signup si el correo
+ *       ya tiene cuenta y mostrar un mensaje claro al usuario en vez del
+ *       genérico "error de conexión".
+ *     parameters:
+ *       - in: path
+ *         name: email
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: juan@example.com
+ *     responses:
+ *       200:
+ *         description: Resultado de disponibilidad
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 available:
+ *                   type: boolean
+ *                   example: false
+ *       400:
+ *         description: Email con formato inválido
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get("/check-email/:email", authController.checkEmail);
+
 export default router;

@@ -14,10 +14,13 @@ export const ErrorCode = {
   // Body / validación
   MISSING_FIELDS: "MISSING_FIELDS",
   USERNAME_INVALID: "USERNAME_INVALID",
+  USERNAME_FORBIDDEN: "USERNAME_FORBIDDEN",
   PROVIDER_INVALID: "PROVIDER_INVALID",
+  EMAIL_INVALID: "EMAIL_INVALID",
 
   // Conflictos
   USERNAME_ALREADY_EXISTS: "USERNAME_ALREADY_EXISTS",
+  EMAIL_ALREADY_EXISTS: "EMAIL_ALREADY_EXISTS",
   PROFILE_ALREADY_EXISTS: "PROFILE_ALREADY_EXISTS",
 
   // Estado
@@ -41,9 +44,12 @@ export const DEFAULT_MESSAGES: Record<ErrorCodeValue, string> = {
   INVALID_TOKEN: "Token inválido o expirado",
   MISSING_FIELDS: "Faltan campos obligatorios en la solicitud",
   USERNAME_INVALID:
-    "username inválido: 3-20 caracteres, solo letras, números y guion bajo",
+    "username inválido: 4-10 caracteres, solo letras, números, punto y guion bajo",
+  USERNAME_FORBIDDEN: "Ese nombre de usuario no está permitido",
   PROVIDER_INVALID: "provider debe ser 'password' o 'google'",
+  EMAIL_INVALID: "Correo electrónico inválido",
   USERNAME_ALREADY_EXISTS: "El nombre de usuario ya está en uso",
+  EMAIL_ALREADY_EXISTS: "El correo electrónico ya está registrado",
   PROFILE_ALREADY_EXISTS: "El perfil ya existe para este usuario",
   PROFILE_NOT_FOUND: "Perfil no encontrado",
   INTERNAL_ERROR: "Error interno del servidor",

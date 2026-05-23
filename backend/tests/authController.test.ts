@@ -11,6 +11,7 @@ const getUserProfileMock = jest.fn();
 const isUsernameTakenMock = jest.fn();
 const setUserOnlineStatusMock = jest.fn();
 const revokeUserTokensMock = jest.fn();
+const isEmailRegisteredMock = jest.fn();
 
 jest.mock("../src/services/authService", () => ({
   registerUserProfile: (...args: unknown[]) => registerUserProfileMock(...args),
@@ -18,6 +19,7 @@ jest.mock("../src/services/authService", () => ({
   isUsernameTaken: (...args: unknown[]) => isUsernameTakenMock(...args),
   setUserOnlineStatus: (...args: unknown[]) => setUserOnlineStatusMock(...args),
   revokeUserTokens: (...args: unknown[]) => revokeUserTokensMock(...args),
+  isEmailRegistered: (...args: unknown[]) => isEmailRegisteredMock(...args),
 }));
 
 jest.mock("../src/utils/logger", () => ({
@@ -66,6 +68,7 @@ beforeEach(() => {
   isUsernameTakenMock.mockReset();
   setUserOnlineStatusMock.mockReset();
   revokeUserTokensMock.mockReset();
+  isEmailRegisteredMock.mockReset();
 });
 
 describe("register — validaciones de entrada", () => {
@@ -79,6 +82,18 @@ describe("register — validaciones de entrada", () => {
     });
   });
 
+  it("400 USERNAME_INVALID si username tiene 3 caracteres (mínimo 4)", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "abc", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_INVALID });
+  });
+
   it("400 USERNAME_INVALID si username no cumple la regex", async () => {
     const res = buildRes();
     await authController.register(
@@ -89,6 +104,43 @@ describe("register — validaciones de entrada", () => {
     );
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_INVALID });
+  });
+
+  it("acepta username con punto (alineado con el frontend)", async () => {
+    registerUserProfileMock.mockResolvedValueOnce({ uid: "uid-1" });
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "ana.p", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(201);
+  });
+
+  it("400 USERNAME_FORBIDDEN si el username contiene palabra prohibida", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "xputox", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_FORBIDDEN });
+    expect(registerUserProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("400 USERNAME_FORBIDDEN detecta variantes leet (p3ne)", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "p3ne1", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_FORBIDDEN });
   });
 
   it("400 PROVIDER_INVALID si provider no es 'password' ni 'google'", async () => {
@@ -273,5 +325,62 @@ describe("checkUsername", () => {
       res
     );
     expect(res.body).toEqual({ available: false });
+  });
+
+  it("devuelve { available: false } sin consultar DB si el username es profano", async () => {
+    const res = buildRes();
+    await authController.checkUsername(
+      baseReq({ params: { username: "puta1" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({ available: false });
+    expect(isUsernameTakenMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkEmail", () => {
+  it("400 EMAIL_INVALID si el path param no es un email válido", async () => {
+    const res = buildRes();
+    await authController.checkEmail(
+      baseReq({ params: { email: "no-es-un-email" } as Record<string, string> }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.EMAIL_INVALID });
+    expect(isEmailRegisteredMock).not.toHaveBeenCalled();
+  });
+
+  it("devuelve { available: true } cuando el email no está registrado", async () => {
+    isEmailRegisteredMock.mockResolvedValueOnce(false);
+    const res = buildRes();
+    await authController.checkEmail(
+      baseReq({ params: { email: "nuevo@example.com" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({ available: true });
+  });
+
+  it("devuelve { available: false } cuando el email ya está registrado", async () => {
+    isEmailRegisteredMock.mockResolvedValueOnce(true);
+    const res = buildRes();
+    await authController.checkEmail(
+      baseReq({ params: { email: "tomado@example.com" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({ available: false });
+  });
+
+  it("500 INTERNAL_ERROR si el service falla, sin filtrar el detalle", async () => {
+    isEmailRegisteredMock.mockRejectedValueOnce(
+      new Error("INTERNAL: firebase admin failure XYZ")
+    );
+    const res = buildRes();
+    await authController.checkEmail(
+      baseReq({ params: { email: "x@x.com" } as Record<string, string> }),
+      res
+    );
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toMatchObject({ error: ErrorCode.INTERNAL_ERROR });
+    expect(JSON.stringify(res.body)).not.toMatch(/XYZ/);
   });
 });

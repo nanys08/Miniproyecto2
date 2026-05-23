@@ -80,3 +80,17 @@ export const revokeUserTokens = async (uid: string): Promise<void> => {
   await auth.revokeRefreshTokens(uid);
   logger.info(`Tokens revocados para uid: ${uid}`);
 };
+
+// Verifica si un email ya está registrado en Firebase Authentication.
+// Firebase Admin lanza `auth/user-not-found` cuando no existe; cualquier
+// otro error se propaga para que el controller lo trate como interno.
+export const isEmailRegistered = async (email: string): Promise<boolean> => {
+  try {
+    await auth.getUserByEmail(email);
+    return true;
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "auth/user-not-found") return false;
+    throw err;
+  }
+};

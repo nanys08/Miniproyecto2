@@ -4,8 +4,10 @@ import * as authService from "../services/authService";
 import { AuthProvider } from "../models/User";
 import { AppError, ErrorCode, buildError } from "../utils/errors";
 import { logger } from "../utils/logger";
+import { isProfane } from "../utils/profanity";
 
-const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9_.]{4,10}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_PROVIDERS: AuthProvider[] = ["password", "google"];
 
 // Envía un AppError tal cual al cliente. Cualquier otro error se loggea
@@ -39,6 +41,10 @@ export const register = async (
     }
     if (typeof username !== "string" || !USERNAME_REGEX.test(username)) {
       res.status(400).json(buildError(ErrorCode.USERNAME_INVALID));
+      return;
+    }
+    if (isProfane(username)) {
+      res.status(400).json(buildError(ErrorCode.USERNAME_FORBIDDEN));
       return;
     }
     if (!VALID_PROVIDERS.includes(provider)) {
@@ -96,6 +102,27 @@ export const logout = async (
   }
 };
 
+// GET /api/auth/check-email/:email
+// Endpoint público. El frontend puede llamarlo antes de
+// `createUserWithEmailAndPassword` para mostrar un mensaje claro de
+// "el correo ya está registrado" en vez del genérico de error de conexión.
+export const checkEmail = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const email = req.params["email"] as string;
+    if (!email || !EMAIL_REGEX.test(email)) {
+      res.status(400).json(buildError(ErrorCode.EMAIL_INVALID));
+      return;
+    }
+    const exists = await authService.isEmailRegistered(email);
+    res.json({ available: !exists });
+  } catch (err) {
+    sendError(res, err, "checkEmail");
+  }
+};
+
 // GET /api/auth/check-username/:username
 export const checkUsername = async (
   req: AuthRequest,
@@ -105,6 +132,13 @@ export const checkUsername = async (
     const username = req.params["username"] as string;
     if (!USERNAME_REGEX.test(username)) {
       res.status(400).json(buildError(ErrorCode.USERNAME_INVALID));
+      return;
+    }
+    // Las palabras prohibidas se reportan como "no disponible" para que el
+    // frontend pinte el mismo estado de ya-en-uso sin necesidad de leer
+    // códigos nuevos (no rompe el contrato { available: boolean }).
+    if (isProfane(username)) {
+      res.json({ available: false });
       return;
     }
     const taken = await authService.isUsernameTaken(username);

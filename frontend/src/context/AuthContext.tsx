@@ -94,6 +94,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async register(email, password, username, fullName, avatar) {
         await createUserWithEmailAndPassword(auth!, email, password);
         await api.post("/auth/register", { username, fullName, avatar, provider: "password" });
+        // Actualiza el estado inmediatamente sin esperar al onAuthStateChanged
+        const firebaseUser = auth!.currentUser;
+        if (firebaseUser) {
+          const res = await api.get<{ user: { username: string; fullName: string; avatar: string; isUnivalle?: boolean; university?: string } }>("/auth/me");
+          setUser({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            username: res.user.username,
+            displayName: res.user.fullName,
+            avatar: res.user.avatar,
+            isUnivalle: res.user.isUnivalle,
+            university: res.user.university,
+          });
+        }
       },
       async logout() {
         disconnectSocket();

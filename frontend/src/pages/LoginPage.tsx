@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 
 export default function LoginPage() {
-  const { login, loginWithGoogle} = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const { show } = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [showRegisterLink, setShowRegisterLink] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -32,26 +33,28 @@ export default function LoginPage() {
       await login(email, password);
       show("success", "Sesión iniciada");
       navigate("/dashboard", { replace: true });
-    } catch (err) {
-      if (err instanceof Error && (err.message.includes("user-not-found") || err.message.includes("USER_NOT_FOUND"))) {
-        setError("Correo o contraseña incorrecta");
-      }
+    } catch {
+      setError("Correo o contraseña incorrectos");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function handleGoogle() {
     setError(null);
+    setShowRegisterLink(false);
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
       show("success", "Sesión iniciada con Google");
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudo iniciar sesión con Google"
-      );
+      if (err instanceof Error && err.message === "needs-username") {
+        setError("Esta cuenta de Google no está registrada.");
+        setShowRegisterLink(true);
+      } else {
+        setError("No se pudo iniciar sesión con Google");
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -61,18 +64,12 @@ export default function LoginPage() {
     <div className="rounded-2xl bg-white p-8 shadow-sm">
       <div className="flex flex-col items-center gap-2">
         <Logo size="lg" showText={false} />
-        <span className="mt-1 text-2xl font-bold text-slate-900">
-          EstudioColab
-        </span>
+        <span className="mt-1 text-2xl font-bold text-slate-900">EstudioColab</span>
       </div>
 
       <div className="mt-6 text-center">
-        <h1 className="text-2xl font-bold text-slate-900">
-          Bienvenido de nuevo
-        </h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Inicia sesión para unirte a tus salas
-        </p>
+        <h1 className="text-2xl font-bold text-slate-900">Bienvenido de nuevo</h1>
+        <p className="mt-1 text-sm text-slate-600">Inicia sesión para unirte a tus salas</p>
       </div>
 
       <div className="mt-6">
@@ -99,7 +96,7 @@ export default function LoginPage() {
           required
           value={email}
           onChange={(e) => { setEmail(e.target.value); setError(null); }}
-          error={error && !email.trim() ? " " : undefined}
+          error={error !== null && !email.trim() ? " " : undefined}
         />
         <Input
           label="Contraseña"
@@ -109,22 +106,24 @@ export default function LoginPage() {
           required
           value={password}
           onChange={(e) => { setPassword(e.target.value); setError(null); }}
-          error={error && !password.trim() ? " " : undefined}
+          error={error !== null && !password.trim() ? " " : undefined}
         />
 
         <div className="-mt-2 text-right">
-          <Link
-            to="/login"
-            className="text-sm font-medium text-brand-700 hover:text-brand-900 hover:underline"
-          >
+          <Link to="/login" className="text-sm font-medium text-brand-700 hover:text-brand-900 hover:underline">
             ¿Olvidaste tu contraseña?
           </Link>
         </div>
 
         {error && (
-          <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
-            {error}
-          </p>
+          <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+            <p>{error}</p>
+            {showRegisterLink && (
+              <Link to="/register" className="mt-1 block font-semibold text-blue-600 hover:underline">
+                Ir a registrarse →
+              </Link>
+            )}
+          </div>
         )}
 
         <Button type="submit" isLoading={loading} className="mt-1 w-full">
@@ -134,10 +133,7 @@ export default function LoginPage() {
 
       <p className="mt-5 text-center text-sm text-slate-600">
         ¿No tienes cuenta?{" "}
-        <Link
-          to="/register"
-          className="font-medium text-brand-700 hover:text-brand-900 hover:underline"
-        >
+        <Link to="/register" className="font-medium text-brand-700 hover:text-brand-900 hover:underline">
           Regístrate gratis
         </Link>
       </p>

@@ -1,6 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Outlet, NavLink, useLocation } from "react-router-dom";
-import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import Logo from "@/components/Logo";

@@ -1,11 +1,22 @@
-// Códigos de error estables expuestos al cliente.
-// Reglas:
-//   - El cliente puede confiar en `error.code` para tomar decisiones (i18n,
-//     UX). Nunca cambiar el valor de un código sin migrar al frontend.
-//   - `message` es texto legible en español, listo para anunciar en un
-//     `role="alert"`. NO incluir nunca detalles internos (stack, mensaje
-//     original de Firebase, paths, etc.).
+/**
+ * @file errors — Códigos de error estables expuestos al cliente.
+ *
+ * Reglas del contrato (compartidas con el frontend):
+ *  - El cliente puede confiar en `error.code` para tomar decisiones
+ *    (i18n, UX). **Nunca** cambiar el valor de un código sin migrar al
+ *    frontend en el mismo PR.
+ *  - `message` es texto legible en español, listo para anunciar en un
+ *    `role="alert"`. NO incluir nunca detalles internos (stack, mensaje
+ *    original de Firebase, paths, etc.).
+ *
+ * Para agregar un código:
+ *  1. Añádelo a `ErrorCode`.
+ *  2. Añade su mensaje por defecto a `DEFAULT_MESSAGES`.
+ *  3. Añádelo al enum `Error.error` de `src/config/swagger.ts`.
+ *  4. Actualiza `docs/contrato-frontend.md` (sección de códigos).
+ */
 
+/** Conjunto cerrado de códigos de error expuestos al cliente. */
 export const ErrorCode = {
   // Auth / token
   MISSING_TOKEN: "MISSING_TOKEN",
@@ -30,15 +41,19 @@ export const ErrorCode = {
   INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;
 
+/** Tipo unión de los valores de `ErrorCode`. */
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
+/** Forma del body devuelto por cualquier error de la API. */
 export interface ApiErrorBody {
   error: ErrorCodeValue;
   message: string;
 }
 
-// Mensajes humanos por defecto (español). El service/controller puede
-// sobreescribirlos si tiene contexto adicional.
+/**
+ * Mensajes humanos por defecto (español). El service/controller puede
+ * sobreescribirlos si tiene contexto adicional (ver `AppError`).
+ */
 export const DEFAULT_MESSAGES: Record<ErrorCodeValue, string> = {
   MISSING_TOKEN: "Token de autorización requerido",
   INVALID_TOKEN: "Token inválido o expirado",
@@ -55,10 +70,17 @@ export const DEFAULT_MESSAGES: Record<ErrorCodeValue, string> = {
   INTERNAL_ERROR: "Error interno del servidor",
 };
 
-// Error tipado para que el service comunique códigos al controller sin
-// depender de mensajes literales (que antes se inspeccionaban con regex).
+/**
+ * Error tipado para que el service comunique códigos al controller sin
+ * depender de mensajes literales (evita inspeccionar mensajes con regex).
+ *
+ * @example
+ *   throw new AppError(ErrorCode.USERNAME_ALREADY_EXISTS, 409);
+ */
 export class AppError extends Error {
+  /** Código estable expuesto al cliente. */
   public readonly code: ErrorCodeValue;
+  /** Status HTTP recomendado para esta excepción. */
   public readonly status: number;
 
   constructor(code: ErrorCodeValue, status: number = 400, message?: string) {
@@ -69,6 +91,12 @@ export class AppError extends Error {
   }
 }
 
+/**
+ * Helper para construir el body JSON estándar de un error.
+ *
+ * @param code    Código estable de `ErrorCode`.
+ * @param message Mensaje custom. Si se omite, usa `DEFAULT_MESSAGES[code]`.
+ */
 export const buildError = (
   code: ErrorCodeValue,
   message?: string

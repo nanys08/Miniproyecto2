@@ -1,8 +1,16 @@
-# Contrato técnico para el frontend — Backend Sprint 0
+# Contrato técnico para el frontend — Backend Sprint 1
 
 Documento autocontenido para que el frontend conecte con el backend sin tener que adivinar nada. Cualquier cambio que rompa este contrato debe versionarse y avisarse.
 
-> **Cómo se actualiza este doc:** si cambia un endpoint, un código de error o un payload, edita primero este archivo y luego sincroniza Swagger (`src/config/swagger.ts`).
+> **Cómo se actualiza este doc:** si cambia un endpoint, un código de error o un payload, edita primero este archivo y luego sincroniza Swagger (`src/config/swagger.ts`) y el modelo de datos (`docs/firestore-model.md`).
+
+> **Cambios respecto a Sprint 0:**
+> - `username` ahora va de **4 a 10 caracteres** y admite punto (`.`): regex `^[a-zA-Z0-9_.]{4,10}$` (antes 3-20 sin punto).
+> - Nuevo endpoint público `GET /api/auth/check-email/:email`.
+> - Nuevo endpoint público `GET /api/auth/is-univalle/:email` (identifica correos `@correounivalle.edu.co`).
+> - El objeto `user` devuelto por `/me` y `/register` ahora incluye el campo derivado `isUnivalle: boolean` (calculado en runtime, no persistido).
+> - Nuevos códigos de error: `USERNAME_FORBIDDEN`, `EMAIL_INVALID`, `EMAIL_ALREADY_EXISTS`.
+> - Lista negra de palabras prohibidas activa en `register` y `check-username`.
 
 ## 1. URLs base
 
@@ -95,16 +103,16 @@ Crea el perfil `users/{uid}` tras el signup de Firebase Auth.
 }
 ```
 
-| Campo      | Reglas                                                                         |
-|------------|--------------------------------------------------------------------------------|
-| `username` | string obligatorio, regex `^[a-zA-Z0-9_]{3,20}$`, único en toda la colección   |
-| `fullName` | string obligatorio                                                             |
-| `provider` | `"password"` o `"google"`                                                      |
-| `avatar`   | string opcional (URL)                                                          |
+| Campo      | Reglas                                                                                          |
+|------------|-------------------------------------------------------------------------------------------------|
+| `username` | string obligatorio, regex `^[a-zA-Z0-9_.]{4,10}$`, único, sin palabras de la lista negra        |
+| `fullName` | string obligatorio                                                                              |
+| `provider` | `"password"` o `"google"`                                                                       |
+| `avatar`   | string opcional (URL)                                                                           |
 
 **Responses**
 - `201 { "user": User }` — creado.
-- `400 { error: "MISSING_FIELDS" | "USERNAME_INVALID" | "PROVIDER_INVALID", message }`
+- `400 { error: "MISSING_FIELDS" | "USERNAME_INVALID" | "USERNAME_FORBIDDEN" | "PROVIDER_INVALID", message }`
 - `401 { error: "MISSING_TOKEN" | "INVALID_TOKEN", message }`
 - `409 { error: "USERNAME_ALREADY_EXISTS" | "PROFILE_ALREADY_EXISTS", message }`
 - `500 { error: "INTERNAL_ERROR", message }`
@@ -124,11 +132,62 @@ Devuelve el perfil del usuario autenticado.
 Endpoint **público** (sin token) para validación en vivo del username durante el formulario de registro.
 
 **Responses**
-- `200 { "available": boolean }`
-- `400 { error: "USERNAME_INVALID", message }` — el formato del path param no cumple la regex.
+- `200 { "available": boolean }` — `false` cuando está tomado **o** cuando contiene una palabra de la lista negra (mismo estado visual de "no disponible" en el frontend).
+- `400 { error: "USERNAME_INVALID", message }` — el formato del path param no cumple la regex `^[a-zA-Z0-9_.]{4,10}$`.
 - `500 { error: "INTERNAL_ERROR", message }`
 
-### 5.4 `POST /api/auth/logout` 🔒
+> Si necesitas diferenciar "tomado" de "prohibido", usa `POST /register` que sí distingue (`USERNAME_ALREADY_EXISTS` vs `USERNAME_FORBIDDEN`).
+
+### 5.4 `GET /api/auth/check-email/:email`
+
+Endpoint **público** (sin token). Comprueba si un email ya tiene cuenta en Firebase Authentication. Útil para mostrar "Ese correo ya está registrado" **antes** de llamar a `createUserWithEmailAndPassword` y evitar el genérico "error de conexión".
+
+**Responses**
+- `200 { "available": boolean }` — `true` si el correo está libre, `false` si ya está registrado.
+- `400 { error: "EMAIL_INVALID", message }` — formato de email inválido.
+- `500 { error: "INTERNAL_ERROR", message }`
+
+**Uso sugerido desde el frontend**
+
+```ts
+const { available } = await api.get<{ available: boolean }>(`/auth/check-email/${encodeURIComponent(email)}`);
+if (!available) {
+  setEmailError("Ese correo ya está registrado, intenta iniciar sesión");
+  return;
+}
+```
+
+### 5.5 `GET /api/auth/is-univalle/:email`
+
+Endpoint **público** (sin token). Identifica si un correo pertenece al dominio institucional de Univalle (`@correounivalle.edu.co`). Pensado para mostrar/ocultar en vivo un badge "Estudiante Univalle" en el formulario de registro.
+
+Política actual: **solo identifica**, no restringe registro. Cualquier dominio sigue pudiendo crear cuenta.
+
+**Responses**
+- `200 { "isUnivalle": boolean, "domain": "correounivalle.edu.co", "university": "Univalle" | "No identificado" }`
+- `400 { error: "EMAIL_INVALID", message }` — formato de email inválido.
+- `500 { error: "INTERNAL_ERROR", message }`
+
+**Uso sugerido desde el frontend**
+
+```ts
+// Llamar con debounce en el onChange del campo email del formulario
+const { isUnivalle, university } = await api.get<{
+  isUnivalle: boolean;
+  domain: string;
+  university: "Univalle" | "No identificado";
+}>(`/auth/is-univalle/${encodeURIComponent(email)}`);
+setIsUnivalleBadge(isUnivalle);
+setUniversityPreview(university);
+```
+
+**También viene en `/me` y en `/register`**
+
+Las respuestas de `GET /api/auth/me` y `POST /api/auth/register` incluyen `user.isUnivalle` y `user.university` como **campos derivados** (calculados del email del ID Token; no se persisten en Firestore). El frontend no necesita llamar a `/is-univalle` después del login: ya los tiene en el objeto `user`.
+
+En la vista de perfil basta con renderizar `user.university` directamente — el backend ya devuelve el texto definitivo (`"Univalle"` o `"No identificado"`), no hay que tomar decisiones de UI a partir del `isUnivalle`.
+
+### 5.6 `POST /api/auth/logout` 🔒
 
 Revoca refresh tokens y marca offline. **204** sin body.
 
@@ -151,6 +210,10 @@ export interface User {
   provider: AuthProvider;
   createdAt: string;   // ISO 8601 (Firestore Timestamp serializado)
   online: boolean;
+  // Campos derivados (calculados por el backend desde `email`, no persistidos).
+  // Sólo presentes en respuestas de /me y /register.
+  isUnivalle?: boolean;
+  university?: "Univalle" | "No identificado";
 }
 
 export type ApiErrorCode =
@@ -158,8 +221,11 @@ export type ApiErrorCode =
   | "INVALID_TOKEN"
   | "MISSING_FIELDS"
   | "USERNAME_INVALID"
+  | "USERNAME_FORBIDDEN"
   | "PROVIDER_INVALID"
+  | "EMAIL_INVALID"
   | "USERNAME_ALREADY_EXISTS"
+  | "EMAIL_ALREADY_EXISTS"
   | "PROFILE_ALREADY_EXISTS"
   | "PROFILE_NOT_FOUND"
   | "INTERNAL_ERROR";
@@ -269,9 +335,18 @@ Los valores Firebase deben ser los **mismos** que tiene el backend en `FIREBASE_
 Antes de marcar la conexión como "lista", verifica desde el frontend:
 
 - [ ] `GET /health` responde 200.
-- [ ] `GET /api/auth/check-username/disponible_test` responde `{ available: true }`.
+- [ ] `GET /api/auth/check-username/dispo1` responde `{ available: true }`.
+- [ ] `GET /api/auth/check-username/abc` (3 chars) responde 400 `USERNAME_INVALID`.
+- [ ] `GET /api/auth/check-username/puta1` responde `{ available: false }` (blacklist).
+- [ ] `GET /api/auth/check-email/nuevo@example.com` responde `{ available: true }` para un correo libre.
+- [ ] `GET /api/auth/check-email/no-es-un-email` responde 400 `EMAIL_INVALID`.
+- [ ] `GET /api/auth/is-univalle/ana@correounivalle.edu.co` responde `{ isUnivalle: true, domain: "correounivalle.edu.co" }`.
+- [ ] `GET /api/auth/is-univalle/ana@gmail.com` responde `{ isUnivalle: false, domain: "correounivalle.edu.co" }`.
+- [ ] `GET /api/auth/me` con un usuario registrado con correo Univalle devuelve `user.isUnivalle: true` y `user.university: "Univalle"`.
+- [ ] `GET /api/auth/me` con un usuario registrado con correo externo devuelve `user.university: "No identificado"`.
 - [ ] Después de `signInWithEmailAndPassword`, `GET /api/auth/me` con el ID Token responde 404 si nunca llamaste a register.
 - [ ] `POST /api/auth/register` válido devuelve 201 + `user`.
+- [ ] `POST /api/auth/register` con `username: "xputox"` devuelve 400 `USERNAME_FORBIDDEN`.
 - [ ] Repetir el mismo `username` desde otra cuenta devuelve 409 `USERNAME_ALREADY_EXISTS`.
 - [ ] Llamar a `/me` sin token devuelve 401 `MISSING_TOKEN`.
 - [ ] Llamar a `/me` con un token corrupto devuelve 401 `INVALID_TOKEN`.

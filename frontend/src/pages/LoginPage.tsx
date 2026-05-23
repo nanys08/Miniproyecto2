@@ -33,9 +33,11 @@ export default function LoginPage() {
       show("success", "Sesión iniciada");
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError("Correo o Contraseña Incorrecta");
-    } finally {
-      setLoading(false);
+      if (err instanceof Error && (err.message.includes("user-not-found") || err.message.includes("USER_NOT_FOUND"))) {
+        setError("No encontramos una cuenta con ese correo. ¿Quieres registrarte?");
+      } else {
+        setError("Correo o contraseña incorrecta");
+      }
     }
   }
 
@@ -131,12 +133,14 @@ export default function LoginPage() {
         </div>
 
         {error && (
-          <p
-            role="alert"
-            className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
-          >
-            {error}
-          </p>
+          <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+            <p>{error}</p>
+            {error.includes("registrarte") && (
+              <Link to="/register" className="mt-1 block text-blue-600 hover:underline font-semibold">
+                Crear una cuenta gratis →
+              </Link>
+            )}
+          </div>
         )}
 
         <Button type="submit" isLoading={loading} className="mt-1 w-full">

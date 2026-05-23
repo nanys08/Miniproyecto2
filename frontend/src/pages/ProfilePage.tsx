@@ -7,6 +7,7 @@ const themeColors = ["#f8fafc", "#fb923c", "#22c55e", "#a855f7", "#1e293b"];
 
 export default function ProfilePage() {
   const { user } = useAuth();
+  console.log("user en perfil:", user);
 
   const displayName =
     user?.email?.split("@")[0]

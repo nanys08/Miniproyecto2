@@ -19,8 +19,7 @@ const AVATARS = [
   "/avatars/avatar8.png",
 ];
 
-const USERNAME_REGEX = /^[a-zA-Z0-9_.]{3,10}$/;
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9_.]{4,10}$/;
 
 type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
@@ -76,7 +75,17 @@ export default function RegisterPage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailError("Ingresa un correo electrónico válido"); valid = false; } else setEmailError("");
     if (!USERNAME_REGEX.test(username)) { setUsernameError("Entre 3 y 10 caracteres"); valid = false; } else setUsernameError("");
     if (usernameStatus === "taken") { setUsernameError("Username ya existe"); valid = false; }
-    if (!PASSWORD_REGEX.test(password)) { setPasswordError("Mínimo 8 caracteres, 1 mayúscula, 1 número y 1 símbolo"); valid = false; } else setPasswordError("");
+    const hasMin = password.length >= 8;
+    const hasUpper = /[A-Z]/.test(password);
+    const hasLower = /[a-z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSymbol = /[^a-zA-Z0-9]/.test(password);
+    if (!hasMin || !hasUpper || !hasLower || !hasNumber || !hasSymbol) {
+      setPasswordError("Mínimo 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 símbolo");
+      valid = false;
+    } else {
+      setPasswordError("");
+    }
     if (!acceptedTerms) { setTermsError("Debes aceptar los términos"); valid = false; } else setTermsError("");
     return valid;
   }
@@ -276,10 +285,24 @@ export default function RegisterPage() {
               <Input
                 label="Contraseña"
                 type="password"
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 autoComplete="new-password"
                 value={password}
-                onChange={(e) => { setPassword(e.target.value); setPasswordError(""); }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPassword(val);
+                  if (val.length === 0) { setPasswordError(""); return; }
+                  const hasMin = val.length >= 8;
+                  const hasUpper = /[A-Z]/.test(val);
+                  const hasLower = /[a-z]/.test(val);
+                  const hasNumber = /[0-9]/.test(val);
+                  const hasSymbol = /[^a-zA-Z0-9]/.test(val);
+                  if (!hasMin || !hasUpper || !hasLower || !hasNumber || !hasSymbol) {
+                    setPasswordError("Mínimo 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 símbolo");
+                  } else {
+                    setPasswordError("");
+                  }
+                }}
                 error={passwordError}
               />
             </div>

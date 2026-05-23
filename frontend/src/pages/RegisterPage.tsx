@@ -73,7 +73,7 @@ export default function RegisterPage() {
     if (avatar === null) { setAvatarError("Elige un avatar"); valid = false; } else setAvatarError("");
     if (!fullName.trim()) { setFullNameError("Ingresa tu nombre completo"); valid = false; } else setFullNameError("");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailError("Ingresa un correo electrónico válido"); valid = false; } else setEmailError("");
-    if (!USERNAME_REGEX.test(username)) { setUsernameError("Entre 3 y 10 caracteres"); valid = false; } else setUsernameError("");
+    if (!USERNAME_REGEX.test(username)) { setUsernameError("Entre 4 y 10 caracteres"); valid = false; } else setUsernameError("");
     if (usernameStatus === "taken") { setUsernameError("Username ya existe"); valid = false; }
     const hasMin = password.length >= 8;
     const hasUpper = /[A-Z]/.test(password);

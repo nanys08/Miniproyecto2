@@ -68,12 +68,18 @@ export default function HomePage() {
             Estudia con tus compañeros, comparte pantalla, chat y
             videollamada todo en un solo lugar.
           </p>
-          <div className="mt-10">
+          <div className="mt-10 flex items-center gap-4">
+            <Link
+              to="/login"
+              className="rounded-xl border border-slate-300 px-8 py-4 text-base font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Iniciar sesión
+            </Link>
             <Link
               to="/register"
-              className="inline-block rounded-2xl bg-blue-600 px-8 py-4 text-base font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+              className="rounded-xl bg-blue-600 px-8 py-4 text-base font-semibold text-white hover:bg-blue-700 transition-colors"
             >
-              Crear sala gratis
+              Registrarse
             </Link>
           </div>
         </div>

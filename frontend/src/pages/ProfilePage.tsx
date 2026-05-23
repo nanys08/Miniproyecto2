@@ -18,18 +18,29 @@ export default function ProfilePage() {
       <div className="relative">
         {/* Avatar superior centrado */}
         <div className="flex justify-center">
-          <Avatar
-            name={displayName}
-            email={user?.email}
-            size="xl"
-            className="ring-4 ring-white"
-          />
+          {user?.avatar ? (
+            <img
+              src={user.avatar}
+              alt={displayName}
+              className="h-24 w-24 rounded-full object-cover ring-4 ring-white"
+            />
+          ) : (
+            <Avatar
+              name={displayName}
+              email={user?.email}
+              size="xl"
+              className="ring-4 ring-white"
+            />
+          )}
         </div>
 
         {/* Card de perfil */}
         <div className="-mt-12 rounded-2xl bg-white p-8 pt-16 shadow-sm">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-slate-900">{displayName}</h1>
+            {user?.username && (
+              <p className="mt-0.5 text-sm text-slate-400">@{user.username}</p>
+            )}
             <p className="mt-1 inline-flex items-center gap-1 text-sm text-slate-600">
               Estudiante <span aria-hidden="true">📚</span>
             </p>

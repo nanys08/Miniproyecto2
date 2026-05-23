@@ -107,7 +107,8 @@ export default function LoginPage() {
           autoComplete="email"
           required
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => { setEmail(e.target.value); setError(null); }}
+          error={error && !email.trim() ? " " : undefined}
         />
         <Input
           label="Contraseña"
@@ -116,7 +117,8 @@ export default function LoginPage() {
           autoComplete="current-password"
           required
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => { setPassword(e.target.value); setError(null); }}
+          error={error && !password.trim() ? " " : undefined}
         />
 
         <div className="-mt-2 text-right">

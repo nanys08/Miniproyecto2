@@ -28,7 +28,9 @@ Complementa a:
 | Login Email/Password      | ✓      | El cliente lo hace con SDK Firebase; el backend solo verifica el ID Token resultante en cada request privado |
 | Login Google + detección de usuario nuevo | ✓ | Cliente hace `signInWithPopup`; tras `signIn`, el frontend llama a `GET /api/auth/me` → si 404 ⇒ pide username y llama `POST /register` con `provider: "google"` |
 | Validación de username único | ✓   | `src/services/authService.ts` (`isUsernameTaken`) + endpoint público `/check-username` + chequeo en `register` |
-| Validación de formato (`username` regex, `provider` enum) | ✓ | `src/controllers/authController.ts:5-7,30-42` |
+| Validación de formato (`username` regex `^[a-zA-Z0-9_.]{4,10}$`, `provider` enum) | ✓ | `src/controllers/authController.ts` (Sprint 1: actualizada de 3-20 a 4-10 + admite `.`) |
+| Lista negra de palabras prohibidas en `username` | ✓ (Sprint 1) | `src/utils/profanity.ts` (ES/EN + normalización leet/acentos) aplicada en `register` y `check-username` |
+| Validación de correo ya registrado | ✓ (Sprint 1) | `GET /api/auth/check-email/:email` → `authService.isEmailRegistered` (Firebase Admin `getUserByEmail`) |
 | Rutas privadas            | ✓      | `src/middlewares/authMiddleware.ts:12-33` aplicado en `src/routes/authRoutes.ts` |
 | Reglas Firestore          | ✓      | `firestore.rules` (raíz del repo) — solo el dueño escribe su `users/{uid}`, campos inmutables, default-deny |
 | Estado online del usuario | ✓      | `src/services/authService.ts` (`setUserOnlineStatus`, toggle en connect/disconnect del socket) |
@@ -36,7 +38,7 @@ Complementa a:
 | Códigos de error estables (no filtrar Firebase) | ✓ | `src/utils/errors.ts` + `AppError`; respuestas con shape `{ error: CODE, message }` |
 | Concurrencia username (transacción Firestore) | ✓ | `src/services/authService.ts` (`db.runTransaction` chequea + escribe atómicamente) |
 | Detección de tokens revocados | ✓ | `authMiddleware.verifyToken` pasa `checkRevoked: true` a `auth.verifyIdToken`; el handshake del socket hace lo mismo (`src/sockets/socketManager.ts`) |
-| Tests automatizados       | ✓      | `backend/tests/authService.test.ts` + `authController.test.ts` + `authMiddleware.test.ts` (33 casos: registro, persistencia exacta, duplicados, concurrencia, login posterior, validaciones, no-leak, acceso autorizado, sin token, header mal formado, token inválido/expirado/revocado) — `npm test` |
+| Tests automatizados       | ✓      | `backend/tests/authService.test.ts` + `authController.test.ts` + `authMiddleware.test.ts` (44 casos en Sprint 1: registro, persistencia exacta, duplicados, concurrencia, login posterior, validaciones de regex 4-10, blacklist, check-email libre/registrado/inválido, no-leak, acceso autorizado, sin token, header mal formado, token inválido/expirado/revocado) — `npm test` |
 
 ### 1.2 Firebase Auth
 
@@ -112,9 +114,11 @@ await db.collection(USERS_COLLECTION).doc(uid).set(newUser);
 ```
 
 El servicio rechaza el registro si:
-- ya existe un perfil para ese `uid` (HTTP `409`),
-- el `username` está tomado por otro usuario (HTTP `409`),
-- faltan campos requeridos o el `username` no cumple la regex `/^[a-zA-Z0-9_]{3,20}$/` (HTTP `400`).
+- ya existe un perfil para ese `uid` (HTTP `409 PROFILE_ALREADY_EXISTS`),
+- el `username` está tomado por otro usuario (HTTP `409 USERNAME_ALREADY_EXISTS`),
+- faltan campos requeridos (HTTP `400 MISSING_FIELDS`),
+- el `username` no cumple la regex `/^[a-zA-Z0-9_.]{4,10}$/` (HTTP `400 USERNAME_INVALID`),
+- el `username` contiene una palabra de la lista negra (HTTP `400 USERNAME_FORBIDDEN`, Sprint 1).
 
 Lectura del perfil: `getUserProfile(uid)` en `src/services/authService.ts:42-45` (usado por `GET /api/auth/me` y por el socket al conectarse).
 
@@ -122,8 +126,13 @@ Lectura del perfil: `getUserProfile(uid)` en `src/services/authService.ts:42-45`
 
 Dos puntos de validación:
 
-1. **En el registro** (server-side, fuente de verdad): `authService.registerUserProfile` llama a `isUsernameTaken` antes de crear el doc (`src/services/authService.ts:12-15`). Si está tomado, lanza error y el controller devuelve `400`.
-2. **Disponibilidad en vivo** (UX del frontend): endpoint público `GET /api/auth/check-username/:username` → `{ available: boolean }` (`src/controllers/authController.ts:53-65`).
+1. **En el registro** (server-side, fuente de verdad): `authService.registerUserProfile` realiza la verificación dentro de una **transacción Firestore** que incluye `isUsernameTaken` + escritura del doc. Si está tomado, lanza `AppError(USERNAME_ALREADY_EXISTS, 409)`.
+2. **Disponibilidad en vivo** (UX del frontend): endpoint público `GET /api/auth/check-username/:username` → `{ available: boolean }`. La verificación de blacklist se incluye aquí pero se reporta como `available: false` (no como 400) para no romper el contrato del frontend.
+
+Además (Sprint 1):
+
+3. **Lista negra de palabras**: `src/utils/profanity.ts` normaliza (minúsculas, sin acentos, sin `_`/`.`, leet → letras) y compara contra una blacklist ES/EN. Bloquea `register` con `400 USERNAME_FORBIDDEN`.
+4. **Verificación de correo ya registrado**: `GET /api/auth/check-email/:email` consulta Firebase Auth con `admin.auth().getUserByEmail` y devuelve `{ available: boolean }`. Permite al frontend mostrar “correo ya registrado” antes del signup.
 
 Query Firestore (`src/services/authService.ts:32-39`):
 
@@ -152,7 +161,9 @@ router.get("/check-username/:username", authController.checkUsername); // públi
 |--------|---------------------------------------|------|------------------------------|
 | POST   | `/api/auth/register`                  | ✓    | `201 { user }`               |
 | GET    | `/api/auth/me`                        | ✓    | `200 { user }` o `404`       |
+| POST   | `/api/auth/logout`                    | ✓    | `204`                        |
 | GET    | `/api/auth/check-username/:username`  | —    | `200 { available }`          |
+| GET    | `/api/auth/check-email/:email`        | —    | `200 { available }` (Sprint 1) |
 
 Documentación interactiva en `/api/docs` (Swagger UI) — ver `src/config/swagger.ts`.
 
@@ -216,7 +227,17 @@ Notas:
 - El campo `provider` queda guardado en el doc para que el backend sepa de dónde vino el usuario (auditoría, futuras políticas).
 - Si dos navegadores intentan registrar el mismo `username` a la vez, gana el primero — el segundo recibe `409`. La validación en vivo (`/check-username`) es solo UX; la verdad la dice `register`.
 
-### 1.8 Pendiente para Sprints siguientes
+### 1.8 Cambios Sprint 1 (resumen)
+
+- Regex de `username` actualizada de `^[a-zA-Z0-9_]{3,20}$` a `^[a-zA-Z0-9_.]{4,10}$` (acepta punto, 4-10 chars). `firestore.rules` también alineado.
+- **Lista negra** de palabras prohibidas en `username` (`src/utils/profanity.ts`).
+- Nuevo endpoint público `GET /api/auth/check-email/:email`.
+- Nuevos códigos de error: `USERNAME_FORBIDDEN`, `EMAIL_INVALID`, `EMAIL_ALREADY_EXISTS`.
+- JSDoc en todos los archivos backend (controllers, middleware, services, utils, config) y propagación al `.d.ts` del build.
+- Swagger reescrito con responses reutilizables (`Unauthorized`, `InternalError`), ejemplos por endpoint y schema `CheckResponse` compartido.
+- Cobertura de tests pasa de 33 → 44 (suite completa verde en `npm test`).
+
+### 1.9 Pendiente para Sprints siguientes
 
 - Endpoints para **editar perfil** (`PATCH /api/auth/me`) y **eliminar cuenta** con cascada de salas/mensajes.
 - Exponer `revokeUserTokens` como acción administrativa (`POST /api/auth/revoke`).

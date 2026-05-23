@@ -31,8 +31,8 @@ service cloud.firestore {
                        ])
                     && request.resource.data.provider in ['password','google']
                     && request.resource.data.username is string
-                    && request.resource.data.username.size() >= 3
-                    && request.resource.data.username.size() <= 20;
+                    && request.resource.data.username.size() >= 4
+                    && request.resource.data.username.size() <= 10;
 
       // Solo el dueño puede actualizar, y no puede cambiar uid/username/
       // email/provider/createdAt desde el cliente (esos viajan por la API).

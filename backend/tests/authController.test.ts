@@ -11,6 +11,7 @@ const getUserProfileMock = jest.fn();
 const isUsernameTakenMock = jest.fn();
 const setUserOnlineStatusMock = jest.fn();
 const revokeUserTokensMock = jest.fn();
+const isEmailRegisteredMock = jest.fn();
 
 jest.mock("../src/services/authService", () => ({
   registerUserProfile: (...args: unknown[]) => registerUserProfileMock(...args),
@@ -18,6 +19,7 @@ jest.mock("../src/services/authService", () => ({
   isUsernameTaken: (...args: unknown[]) => isUsernameTakenMock(...args),
   setUserOnlineStatus: (...args: unknown[]) => setUserOnlineStatusMock(...args),
   revokeUserTokens: (...args: unknown[]) => revokeUserTokensMock(...args),
+  isEmailRegistered: (...args: unknown[]) => isEmailRegisteredMock(...args),
 }));
 
 jest.mock("../src/utils/logger", () => ({
@@ -66,6 +68,7 @@ beforeEach(() => {
   isUsernameTakenMock.mockReset();
   setUserOnlineStatusMock.mockReset();
   revokeUserTokensMock.mockReset();
+  isEmailRegisteredMock.mockReset();
 });
 
 describe("register — validaciones de entrada", () => {
@@ -79,6 +82,18 @@ describe("register — validaciones de entrada", () => {
     });
   });
 
+  it("400 USERNAME_INVALID si username tiene 3 caracteres (mínimo 4)", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "abc", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_INVALID });
+  });
+
   it("400 USERNAME_INVALID si username no cumple la regex", async () => {
     const res = buildRes();
     await authController.register(
@@ -89,6 +104,43 @@ describe("register — validaciones de entrada", () => {
     );
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_INVALID });
+  });
+
+  it("acepta username con punto (alineado con el frontend)", async () => {
+    registerUserProfileMock.mockResolvedValueOnce({ uid: "uid-1" });
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "ana.p", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(201);
+  });
+
+  it("400 USERNAME_FORBIDDEN si el username contiene palabra prohibida", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "xputox", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_FORBIDDEN });
+    expect(registerUserProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("400 USERNAME_FORBIDDEN detecta variantes leet (p3ne)", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        body: { username: "p3ne1", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_FORBIDDEN });
   });
 
   it("400 PROVIDER_INVALID si provider no es 'password' ni 'google'", async () => {
@@ -163,7 +215,7 @@ describe("register — no filtra errores internos", () => {
 });
 
 describe("register — caso exitoso", () => {
-  it("201 y devuelve el user creado", async () => {
+  it("201 y devuelve el user creado con isUnivalle:false para correo externo", async () => {
     const fakeUser = {
       uid: "uid-1",
       username: "anita",
@@ -183,17 +235,76 @@ describe("register — caso exitoso", () => {
       res
     );
     expect(res.statusCode).toBe(201);
-    expect(res.body).toEqual({ user: fakeUser });
+    expect(res.body).toEqual({
+      user: { ...fakeUser, isUnivalle: false, university: "No identificado" },
+    });
+  });
+
+  it("201 y devuelve isUnivalle:true + university:'Univalle' cuando el correo es del dominio Univalle", async () => {
+    const fakeUser = {
+      uid: "uid-2",
+      username: "anau",
+      fullName: "Ana",
+      email: "ana.perez@correounivalle.edu.co",
+      avatar: "default_avatar.png",
+      provider: "password",
+      online: false,
+      createdAt: new Date(),
+    };
+    registerUserProfileMock.mockResolvedValueOnce(fakeUser);
+    const res = buildRes();
+    await authController.register(
+      baseReq({
+        user: { uid: "uid-2", email: "ana.perez@correounivalle.edu.co" },
+        body: { username: "anau", fullName: "Ana", provider: "password" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBe(201);
+    expect(res.body).toEqual({
+      user: { ...fakeUser, isUnivalle: true, university: "Univalle" },
+    });
   });
 });
 
 describe("getMe", () => {
-  it("200 con el perfil cuando existe", async () => {
-    getUserProfileMock.mockResolvedValueOnce({ uid: "uid-1", username: "x" });
+  it("200 con el perfil cuando existe (correo externo → isUnivalle:false)", async () => {
+    getUserProfileMock.mockResolvedValueOnce({
+      uid: "uid-1",
+      username: "x",
+      email: "x@gmail.com",
+    });
     const res = buildRes();
     await authController.getMe(baseReq(), res);
     expect(res.statusCode).toBeUndefined(); // no se llamó status (default 200)
-    expect(res.body).toEqual({ user: { uid: "uid-1", username: "x" } });
+    expect(res.body).toEqual({
+      user: {
+        uid: "uid-1",
+        username: "x",
+        email: "x@gmail.com",
+        isUnivalle: false,
+        university: "No identificado",
+      },
+    });
+  });
+
+  it("200 con isUnivalle:true + university:'Univalle' cuando el correo persistido es del dominio Univalle", async () => {
+    getUserProfileMock.mockResolvedValueOnce({
+      uid: "uid-1",
+      username: "anau",
+      email: "ana.perez@correounivalle.edu.co",
+    });
+    const res = buildRes();
+    await authController.getMe(baseReq(), res);
+    expect(res.body).toEqual({
+      user: {
+        uid: "uid-1",
+        username: "anau",
+        email: "ana.perez@correounivalle.edu.co",
+        isUnivalle: true,
+        university: "Univalle",
+      },
+    });
   });
 
   it("404 PROFILE_NOT_FOUND cuando no existe", async () => {
@@ -273,5 +384,113 @@ describe("checkUsername", () => {
       res
     );
     expect(res.body).toEqual({ available: false });
+  });
+
+  it("devuelve { available: false } sin consultar DB si el username es profano", async () => {
+    const res = buildRes();
+    await authController.checkUsername(
+      baseReq({ params: { username: "puta1" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({ available: false });
+    expect(isUsernameTakenMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkUnivalle", () => {
+  it("200 con isUnivalle:true + university:'Univalle' para correo institucional", async () => {
+    const res = buildRes();
+    await authController.checkUnivalle(
+      baseReq({ params: { email: "ana@correounivalle.edu.co" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({
+      isUnivalle: true,
+      domain: "correounivalle.edu.co",
+      university: "Univalle",
+    });
+  });
+
+  it("200 con isUnivalle:false + university:'No identificado' para correo externo", async () => {
+    const res = buildRes();
+    await authController.checkUnivalle(
+      baseReq({ params: { email: "ana@gmail.com" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({
+      isUnivalle: false,
+      domain: "correounivalle.edu.co",
+      university: "No identificado",
+    });
+  });
+
+  it("200 sin importar capitalización del correo", async () => {
+    const res = buildRes();
+    await authController.checkUnivalle(
+      baseReq({ params: { email: "Ana@CorreoUnivalle.edu.co" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({
+      isUnivalle: true,
+      domain: "correounivalle.edu.co",
+      university: "Univalle",
+    });
+  });
+
+  it("400 EMAIL_INVALID si el path param no es un email válido", async () => {
+    const res = buildRes();
+    await authController.checkUnivalle(
+      baseReq({ params: { email: "no-es-email" } as Record<string, string> }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.EMAIL_INVALID });
+  });
+});
+
+describe("checkEmail", () => {
+  it("400 EMAIL_INVALID si el path param no es un email válido", async () => {
+    const res = buildRes();
+    await authController.checkEmail(
+      baseReq({ params: { email: "no-es-un-email" } as Record<string, string> }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.EMAIL_INVALID });
+    expect(isEmailRegisteredMock).not.toHaveBeenCalled();
+  });
+
+  it("devuelve { available: true } cuando el email no está registrado", async () => {
+    isEmailRegisteredMock.mockResolvedValueOnce(false);
+    const res = buildRes();
+    await authController.checkEmail(
+      baseReq({ params: { email: "nuevo@example.com" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({ available: true });
+  });
+
+  it("devuelve { available: false } cuando el email ya está registrado", async () => {
+    isEmailRegisteredMock.mockResolvedValueOnce(true);
+    const res = buildRes();
+    await authController.checkEmail(
+      baseReq({ params: { email: "tomado@example.com" } as Record<string, string> }),
+      res
+    );
+    expect(res.body).toEqual({ available: false });
+  });
+
+  it("500 INTERNAL_ERROR si el service falla, sin filtrar el detalle", async () => {
+    isEmailRegisteredMock.mockRejectedValueOnce(
+      new Error("INTERNAL: firebase admin failure XYZ")
+    );
+    const res = buildRes();
+    await authController.checkEmail(
+      baseReq({ params: { email: "x@x.com" } as Record<string, string> }),
+      res
+    );
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toMatchObject({ error: ErrorCode.INTERNAL_ERROR });
+    expect(JSON.stringify(res.body)).not.toMatch(/XYZ/);
   });
 });

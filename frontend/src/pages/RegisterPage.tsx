@@ -101,6 +101,8 @@ export default function RegisterPage() {
     try {
       await register(email, password, username, fullName, AVATARS[avatar!]);
       show("success", "¡Cuenta creada exitosamente!");
+      // Pequeña espera para que el estado se actualice
+      await new Promise(resolve => setTimeout(resolve, 500));
       navigate("/dashboard", { replace: true });
     } catch {
       setGlobalError("Ocurrió un error de conexión, inténtalo nuevamente");

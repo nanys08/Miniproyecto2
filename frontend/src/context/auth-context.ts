@@ -6,13 +6,11 @@ export interface AppUser {
   username?: string;
   displayName?: string;
   avatar?: string;
-  isDemo?: boolean;
 }
 
 export interface AuthContextValue {
   user: AppUser | null;
   loading: boolean;
-  demoMode: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   register: (

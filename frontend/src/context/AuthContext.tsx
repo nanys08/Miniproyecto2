@@ -47,10 +47,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             username: res.user.username,
             displayName: res.user.fullName,
             avatar: res.user.avatar,
-            isDemo: false,
           });
         } catch {
-          setUser({ uid: u.uid, email: u.email, isDemo: false });
+          setUser({ uid: u.uid, email: u.email });
         }
       } else {
         setUser(null);

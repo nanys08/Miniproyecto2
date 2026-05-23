@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 
 export default function LoginPage() {
-  const { login, loginWithGoogle, demoMode } = useAuth();
+  const { login, loginWithGoogle} = useAuth();
   const { show } = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");

@@ -126,11 +126,9 @@ export default function LoginPage() {
         {error && (
           <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
             <p>{error}</p>
-            {error.includes("registrarte") && (
-              <Link to="/register" className="mt-1 block text-blue-600 hover:underline font-semibold">
-                Crear una cuenta gratis →
-              </Link>
-            )}
+            <Link to="/register" className="mt-1 block text-blue-600 hover:underline font-semibold">
+              ¿No tienes cuenta? Regístrate gratis →
+            </Link>
           </div>
         )}
 

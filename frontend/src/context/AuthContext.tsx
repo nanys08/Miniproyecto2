@@ -40,13 +40,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         try {
-          const res = await api.get<{ user: { username: string; fullName: string; avatar: string } }>("/auth/me");
+          const res = await api.get<{ user: { username: string; fullName: string; avatar: string; isUnivalle?: boolean; university?: string; } }>("/auth/me");
           setUser({
             uid: u.uid,
             email: u.email,
             username: res.user.username,
             displayName: res.user.fullName,
             avatar: res.user.avatar,
+            isUnivalle: res.user.isUnivalle,
+            university: res.user.university,
           });
         } catch {
           setUser({ uid: u.uid, email: u.email });

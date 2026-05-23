@@ -6,6 +6,8 @@ export interface AppUser {
   username?: string;
   displayName?: string;
   avatar?: string;
+  isUnivalle?: boolean;
+  university?: string;
 }
 
 export interface AuthContextValue {

@@ -85,7 +85,18 @@ export default function ProfilePage() {
                     <dd className="text-sm text-slate-900 break-all">{user?.email ?? "—"}</dd>
                   </div>
                 </div>
-
+                <div className="flex items-start gap-3">
+                  <span aria-hidden="true" className="mt-0.5 text-slate-400">
+                    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
+                      <path d="M3 9l9-5 9 5-9 5-9-5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
+                      <path d="M21 9v6m-9 0v5m-7-9v5l7 4 7-4v-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                  </span>
+                <div>
+                  <dt className="text-sm font-medium text-slate-600">Universidad:</dt>
+                  <dd className="text-sm text-slate-900">{user?.university ?? "No identificado"}</dd>
+                </div>
+              </div>
               </dl>
             </section>
           </div>

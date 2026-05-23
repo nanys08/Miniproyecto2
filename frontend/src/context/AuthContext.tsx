@@ -74,6 +74,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const result = await signInWithPopup(auth!, provider);
         sessionStorage.setItem("google-displayName", result.user.displayName ?? "");
         await ensureProfileExists();
+        // Recarga el perfil después de registrarse
+        try {
+          const res = await api.get<{ user: { username: string; fullName: string; avatar: string; isUnivalle?: boolean; university?: string } }>("/auth/me");
+          setUser({
+            uid: result.user.uid,
+            email: result.user.email,
+            username: res.user.username,
+            displayName: res.user.fullName,
+            avatar: res.user.avatar,
+            isUnivalle: res.user.isUnivalle,
+            university: res.user.university,
+          });
+        } catch {
+          // Si falla, el onAuthStateChanged lo manejará
+        }
         void result;
       },
       async register(email, password, username, fullName, avatar) {

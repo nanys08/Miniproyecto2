@@ -46,6 +46,8 @@ export default function RegisterPage() {
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [googleAvatar, setGoogleAvatar] = useState<number | null>(null);
+  const [googleAvatarError, setGoogleAvatarError] = useState("");
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [googleUsername, setGoogleUsername] = useState("");
   const [googleUsernameStatus, setGoogleUsernameStatus] = useState<UsernameStatus>("idle");
@@ -127,11 +129,11 @@ export default function RegisterPage() {
 
   async function handleGoogleUsernameSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!USERNAME_REGEX.test(googleUsername)) { setGoogleUsernameError("Username inválido"); return; }
-    if (googleUsernameStatus !== "available") { setGoogleUsernameError("Elige un username disponible"); return; }
+    if (googleAvatar === null) { setGoogleAvatarError("Elige un avatar"); return; }
+    if (!USERNAME_REGEX.test(googleUsername)) { setGoogleUsernameError("Username inválido"); return; }    if (googleUsernameStatus !== "available") { setGoogleUsernameError("Elige un username disponible"); return; }
     setGoogleLoading(true);
     try {
-      await api.post("/auth/register", { username: googleUsername, fullName: sessionStorage.getItem("google-displayName") ?? "Usuario", avatar: AVATARS[0], provider: "google" });
+      await api.post("/auth/register", { username: googleUsername, fullName: sessionStorage.getItem("google-displayName") ?? "Usuario", avatar: AVATARS[googleAvatar], provider: "google" });
       show("success", "¡Cuenta creada exitosamente!");
       setShowGoogleModal(false);
       navigate("/dashboard", { replace: true });
@@ -360,6 +362,23 @@ export default function RegisterPage() {
               Completa tu perfil
             </h2>
             <p className="mt-1 text-xs text-slate-500">Elige un username único para tu cuenta</p>
+              <div className="mt-4">
+                <p className="text-sm font-medium text-slate-800 mb-2">Elige tu avatar</p>
+                {googleAvatarError && <p className="text-xs text-red-600 mb-1">⚠ {googleAvatarError}</p>}
+                <div className="grid grid-cols-8 gap-1.5">
+                  {AVATARS.map((src, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => { setGoogleAvatar(i); setGoogleAvatarError(""); }}
+                      className={`relative aspect-square rounded-lg overflow-hidden transition-all
+                        ${googleAvatar === i ? "ring-2 ring-blue-500 ring-offset-1" : "ring-1 ring-slate-200 hover:ring-slate-300"}`}
+                    >
+                      <img src={src} alt={`Avatar ${i + 1}`} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>    
+              </div>
             <form onSubmit={handleGoogleUsernameSubmit} className="mt-4 flex flex-col gap-3" noValidate>
               <div>
                 <Input

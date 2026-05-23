@@ -5,45 +5,6 @@ import Input from "@/components/Input";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 
-interface RecentRoom {
-  id: string;
-  title: string;
-  category: string;
-  members: number;
-  status: "active" | "in-progress" | "finished";
-}
-
-// Salas placeholder hasta Sprint 1 (CRUD real)
-const sampleRooms: RecentRoom[] = [
-  {
-    id: "demo-1",
-    title: "Matemáticas Avanzadas",
-    category: "Cálculo III",
-    members: 8,
-    status: "in-progress",
-  },
-  {
-    id: "demo-2",
-    title: "Historia Universal",
-    category: "Historia",
-    members: 5,
-    status: "finished",
-  },
-  {
-    id: "demo-3",
-    title: "Inglés - Conversación",
-    category: "Idiomas",
-    members: 12,
-    status: "active",
-  },
-];
-
-const statusBadge: Record<RecentRoom["status"], { label: string; color: string }> = {
-  active: { label: "Activa", color: "bg-green-100 text-green-800" },
-  "in-progress": { label: "En curso", color: "bg-blue-100 text-blue-800" },
-  finished: { label: "Finalizada", color: "bg-slate-100 text-slate-700" },
-};
-
 export default function DashboardPage() {
   const { user } = useAuth();
   const { show } = useToast();
@@ -153,52 +114,6 @@ export default function DashboardPage() {
         <h2 id="recientes-title" className="mb-4 text-xl font-bold text-slate-900">
           Salas recientes
         </h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sampleRooms.map((room) => {
-            const badge = statusBadge[room.status];
-            return (
-              <article
-                key={room.id}
-                className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-base font-semibold text-slate-900">
-                    {room.title}
-                  </h3>
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.color}`}
-                  >
-                    {badge.label}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">{room.category}</p>
-                <div className="mt-4 flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-                      <path
-                        d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6 0a4 4 0 100-8 4 4 0 000 8z"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    {room.members} conectados
-                  </span>
-                  <Button
-                    size="sm"
-                    onClick={() => show("info", "El acceso a salas se habilita en Sprint 1")}
-                  >
-                    Unirme
-                  </Button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-        <p className="mt-3 text-xs text-slate-500">
-          (Salas de ejemplo. El CRUD real de salas llega en Sprint 1.)
-        </p>
       </section>
 
       <Modal

@@ -136,20 +136,24 @@ export default function DashboardLayout() {
           {navItems.map((item) => (
             <li key={item.to}>
               <NavLink
-                to={item.to}
-                end={item.to === "/dashboard"}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                    "focus-visible:ring-brand-600",
-                    isActive
-                      ? "bg-brand-50 text-brand-700"
-                      : "text-slate-700 hover:bg-slate-100"
-                  )
-                }
+                to="/profile"
+                className="flex items-center gap-3 rounded-md p-2 hover:bg-slate-100 focus-visible:ring-brand-600"
               >
-                {item.icon}
-                {item.label}
+                {user?.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt={displayName}
+                    className="h-9 w-9 rounded-full object-cover flex-shrink-0"
+                  />
+                ) : (
+                  <Avatar name={displayName} email={user?.email} size="md" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-900">
+                    {user?.username ? `@${user.username}` : displayName}
+                  </p>
+                  <p className="text-xs text-slate-500">Estudiante</p>
+                </div>
               </NavLink>
             </li>
           ))}

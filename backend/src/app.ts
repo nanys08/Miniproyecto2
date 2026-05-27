@@ -11,6 +11,11 @@ app.use(
   cors({
     origin: env.corsOrigin,
     credentials: true,
+    // Declarar explícitamente los métodos y headers permitidos evita que
+    // algunos proxies/CDNs recorten el preflight y no incluyan Authorization,
+    // lo que causa que el browser omita el header en la petición real → 401.
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.use(express.json());

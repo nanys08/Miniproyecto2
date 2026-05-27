@@ -123,9 +123,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
 
       async deleteAccount() {
-        // 1. Eliminar en backend (Firestore + Firebase Auth)
+        // 1. Refrescar el token ANTES de la petición para evitar 401 por
+        //    token expirado o caché desactualizada en el SDK de Firebase.
+        //    Si el usuario no tiene sesión activa, lanzamos para que el
+        //    componente muestre el error adecuado.
+        const firebaseUser = auth?.currentUser;
+        if (!firebaseUser) {
+          throw new Error("No hay sesión activa. Inicia sesión de nuevo.");
+        }
+        await firebaseUser.getIdToken(true); // forceRefresh — actualiza caché interna
+
+        // 2. Eliminar en backend (Firestore + Firebase Auth)
         await api.delete("/auth/me");
-        // 2. Limpiar estado local
+
+        // 3. Limpiar estado local
         disconnectSocket();
         if (auth) await signOut(auth);
         // onAuthStateChanged disparará con null → setUser(null) → ProtectedRoute redirige

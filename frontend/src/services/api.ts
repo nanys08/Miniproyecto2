@@ -13,8 +13,20 @@ export class ApiError extends Error {
 
 async function authHeader(): Promise<Record<string, string>> {
   if (!firebaseConfigured || !auth) return {};
-  const token = await auth.currentUser?.getIdToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const currentUser = auth.currentUser;
+  if (!currentUser) return {};
+  try {
+    // getIdToken() devuelve el token cacheado si es válido, o lo refresca
+    // automáticamente si está a punto de expirar. No forzamos refresh aquí
+    // para no ralentizar cada petición; deleteAccount() lo fuerza cuando
+    // importa (operación destructiva).
+    const token = await currentUser.getIdToken();
+    return { Authorization: `Bearer ${token}` };
+  } catch {
+    // Si el refresh falla (sin red, token revocado, etc.) no enviamos
+    // el header roto — el backend devolverá 401 y el usuario verá el error.
+    return {};
+  }
 }
 
 async function request<T>(

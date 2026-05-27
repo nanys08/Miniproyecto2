@@ -63,7 +63,13 @@ export const verifyToken = async (
   }
 
   try {
-    const decoded = await auth.verifyIdToken(token, true);
+    // checkRevoked: false — la verificación criptográfica es suficiente.
+    // checkRevoked: true haría una llamada de red extra a Firebase en CADA
+    // request; en Render free-tier esa llamada puede timeout y convertir
+    // tokens válidos en 401. La revocación natural ocurre cuando el token
+    // caduca (~1 h); para forzar logout inmediato el cliente ya llama a
+    // signOut() localmente.
+    const decoded = await auth.verifyIdToken(token, false);
     req.user = { uid: decoded.uid, email: decoded.email };
     next();
   } catch (err) {

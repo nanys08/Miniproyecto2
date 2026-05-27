@@ -251,6 +251,8 @@ export default function ProfilePage() {
     setDeleteLoading(true);
     try {
       await deleteAccount();
+      // El toast es global (ToastProvider en la raíz), persiste tras navegar.
+      show("success", "Tu cuenta se eliminó correctamente");
       navigate("/login", { replace: true });
     } catch {
       setDeleteError("No se pudo eliminar la cuenta. Inténtalo de nuevo.");

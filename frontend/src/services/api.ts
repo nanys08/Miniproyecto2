@@ -50,6 +50,13 @@ async function request<T>(
     throw new ApiError(data?.error || `HTTP ${res.status}`, res.status);
   }
 
+  // 204 No Content (p. ej. DELETE /auth/me, logout) no tiene body.
+  // Llamar res.json() sobre un cuerpo vacío lanzaría SyntaxError, así que
+  // devolvemos undefined para esos casos.
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
+
   return res.json() as Promise<T>;
 }
 

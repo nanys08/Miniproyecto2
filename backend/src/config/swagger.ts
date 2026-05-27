@@ -17,10 +17,9 @@ const options: swaggerJsdoc.Options = {
       title: "Salón de Estudio Colaborativo — Backend API",
       version: "1.0.0",
       description:
-        "API REST del backend del Mini-proyecto 2 (Sprint 1). " +
-        "Cubre autenticación con Firebase, gestión de perfiles, validación de " +
-        "username (incluyendo lista negra de palabras prohibidas) y " +
-        "comprobación de correo electrónico. " +
+        "API REST del backend del Mini-proyecto 2 (Sprint 1-2). " +
+        "Cubre autenticación con Firebase, gestión de perfiles, salas de " +
+        "estudio y validación de username/email. " +
         "Los flujos de tiempo real (chat, presencia, WebRTC) se documentan " +
         "aparte en `docs/sockets.md`.",
     },
@@ -43,6 +42,13 @@ const options: swaggerJsdoc.Options = {
           "Nota: el login NO es un endpoint REST — vive en el cliente con " +
           "`signInWithEmailAndPassword` / `signInWithPopup` del SDK de Firebase. " +
           "El backend solo verifica los ID Tokens emitidos por el cliente.",
+      },
+      {
+        name: "Rooms",
+        description:
+          "Gestión de salas de estudio. Todas las rutas requieren Firebase ID Token. " +
+          "Los IDs de sala son generados automáticamente por Firestore (20 chars). " +
+          "Solo el dueño (`ownerId`) puede eliminar su propia sala.",
       },
       {
         name: "Health",
@@ -202,6 +208,57 @@ const options: swaggerJsdoc.Options = {
             },
           },
         },
+        Room: {
+          type: "object",
+          required: ["roomId", "name", "ownerId", "createdAt", "participants", "isActive"],
+          description:
+            "Documento `rooms/{roomId}` en Firestore. " +
+            "El `roomId` coincide con el ID del documento.",
+          properties: {
+            roomId: {
+              type: "string",
+              example: "aB3kXq9mZvL2wRtY",
+              description: "ID único auto-generado por Firestore (20 chars).",
+            },
+            name: {
+              type: "string",
+              example: "Sala Matemáticas",
+              description: "Nombre descriptivo (1-100 caracteres).",
+            },
+            ownerId: {
+              type: "string",
+              example: "abc123",
+              description: "UID Firebase del creador de la sala.",
+            },
+            createdAt: {
+              type: "string",
+              format: "date-time",
+              description: "Fecha de creación (Firestore Timestamp serializado a ISO 8601).",
+            },
+            participants: {
+              type: "array",
+              items: { type: "string" },
+              example: ["abc123"],
+              description: "UIDs de participantes. El creador se incluye automáticamente.",
+            },
+            isActive: {
+              type: "boolean",
+              example: true,
+              description: "`true` mientras la sala esté activa.",
+            },
+          },
+        },
+        CreateRoomRequest: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: {
+              type: "string",
+              example: "Sala Matemáticas",
+              description: "Nombre de la sala (1-100 caracteres). Obligatorio.",
+            },
+          },
+        },
         CheckResponse: {
           type: "object",
           required: ["available"],
@@ -236,6 +293,8 @@ const options: swaggerJsdoc.Options = {
                 "EMAIL_ALREADY_EXISTS",
                 "PROFILE_ALREADY_EXISTS",
                 "PROFILE_NOT_FOUND",
+                "ROOM_NAME_INVALID",
+                "ROOM_NOT_FOUND",
                 "INTERNAL_ERROR",
               ],
               example: "USERNAME_ALREADY_EXISTS",

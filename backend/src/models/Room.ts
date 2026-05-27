@@ -1,11 +1,31 @@
+/**
+ * @file Room — Modelo de sala de estudio.
+ *
+ * Estructura Firestore: rooms/{roomId}
+ *
+ * Campos obligatorios al crear:
+ *   roomId, name, ownerId, createdAt
+ *
+ * Campos adicionales gestionados por el backend:
+ *   participants — array de UIDs que han entrado alguna vez a la sala.
+ *   isActive     — false cuando la sala se archiva/cierra.
+ */
+
+/** Documento `rooms/{roomId}` en Firestore. */
 export interface Room {
-  id: string;
+  /** ID único de la sala — coincide con el ID del documento Firestore. */
+  roomId: string;
+  /** Nombre descriptivo de la sala (1-100 caracteres). */
   name: string;
-  createdBy: string;
-  participants: string[];
+  /** UID Firebase del usuario que creó la sala. */
+  ownerId: string;
+  /** Fecha de creación (Firestore Timestamp o Date JS al serializar). */
   createdAt: FirebaseFirestore.Timestamp | Date;
+  /** UIDs de participantes que se han unido (incluye al dueño). */
+  participants: string[];
+  /** `true` mientras la sala esté activa; `false` si fue archivada. */
   isActive: boolean;
 }
 
-// Colección Firestore: rooms/{roomId}
+/** Nombre de la colección en Firestore. */
 export const ROOMS_COLLECTION = "rooms";

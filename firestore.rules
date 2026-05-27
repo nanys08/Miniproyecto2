@@ -79,16 +79,50 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // rooms/{roomId} — placeholder Sprint 1
-    // Las salas y sus mensajes se crean/leen exclusivamente por el backend
-    // (Admin SDK). El cliente directo no tiene acceso de escritura.
+    // rooms/{roomId}
+    //
+    // POLÍTICA:
+    //  • Cualquier usuario autenticado puede LEER una sala (para unirse
+    //    por enlace o listar salas compartidas).
+    //  • Solo usuarios autenticados pueden CREAR salas, y el campo
+    //    `ownerId` debe coincidir con su UID (el backend valida esto, aquí
+    //    es la red de seguridad para acceso directo desde el cliente).
+    //  • Solo el DUEÑO (`ownerId == request.auth.uid`) puede ACTUALIZAR
+    //    o ELIMINAR su propia sala.
+    //    Los campos inmutables `roomId`, `ownerId` y `createdAt` no pueden
+    //    cambiar después de la creación.
+    //
+    // NOTA: El backend (Admin SDK) bypasea estas reglas. Son la red de
+    // seguridad para clientes que intentan escribir directamente en Firestore.
     // ─────────────────────────────────────────────────────────────────────
     match /rooms/{roomId} {
-      // Cualquier usuario autenticado puede leer salas (para listar, unirse, etc.)
-      allow read: if request.auth != null;
-      // Escritura solo vía backend (Admin SDK).
-      allow write: if false;
 
+      // ✅ Cualquier usuario autenticado puede leer salas.
+      allow read: if request.auth != null;
+
+      // ✅ Cualquier usuario autenticado puede CREAR una sala,
+      //    siempre que el ownerId del documento coincida con su UID
+      //    y que los campos mínimos estén presentes.
+      allow create: if request.auth != null
+                    && request.resource.data.ownerId == request.auth.uid
+                    && request.resource.data.roomId is string
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() > 0
+                    && request.resource.data.name.size() <= 100;
+
+      // ✅ Solo el DUEÑO puede actualizar su sala.
+      //    Los campos `roomId`, `ownerId` y `createdAt` son inmutables.
+      allow update: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid
+                    && request.resource.data.roomId == resource.data.roomId
+                    && request.resource.data.ownerId == resource.data.ownerId
+                    && request.resource.data.createdAt == resource.data.createdAt;
+
+      // ✅ Solo el DUEÑO puede eliminar su sala.
+      allow delete: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+
+      // Mensajes de la sala — lectura para autenticados, escritura solo backend.
       match /messages/{messageId} {
         allow read: if request.auth != null;
         allow write: if false;

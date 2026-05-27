@@ -51,3 +51,9 @@ export async function joinRoomByCode(code: string): Promise<Room> {
   const res = await api.get<{ room: Room }>(`/rooms/join/${encodeURIComponent(code)}`);
   return res.room;
 }
+
+/** GET /api/rooms/:roomId — obtiene una sala por su ID. */
+export async function getRoom(roomId: string): Promise<Room> {
+  const res = await api.get<{ room: Room }>(`/rooms/${encodeURIComponent(roomId)}`);
+  return res.room;
+}

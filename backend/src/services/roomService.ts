@@ -91,13 +91,26 @@ export const getRoomByAccessCode = async (accessCode: string): Promise<Room | nu
  * @returns Array de `Room` (vacío si no tiene salas).
  */
 export const getRoomsByUser = async (uid: string): Promise<Room[]> => {
+  // Solo filtramos por ownerId (no usamos orderBy en la query para evitar
+  // exigir un índice compuesto en Firestore). El orden por fecha se hace en
+  // memoria: el set de salas de un usuario es pequeño.
   const snap = await db
     .collection(ROOMS_COLLECTION)
     .where("ownerId", "==", uid)
-    .orderBy("createdAt", "desc")
     .get();
 
-  return snap.docs.map((d) => d.data() as Room);
+  const rooms = snap.docs.map((d) => d.data() as Room);
+
+  const toMillis = (value: Room["createdAt"]): number => {
+    if (value instanceof Date) return value.getTime();
+    // Firestore Timestamp expone toMillis(); fallback a _seconds.
+    const ts = value as { toMillis?: () => number; _seconds?: number };
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    if (typeof ts._seconds === "number") return ts._seconds * 1000;
+    return 0;
+  };
+
+  return rooms.sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
 };
 
 /**

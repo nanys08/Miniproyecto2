@@ -44,6 +44,13 @@ const collectionMock = {
     return makeDocRef(resolvedId);
   },
   where: (field: string, _op: string, value: string) => ({
+    // .where(...).get() directo (sin orderBy) — usado por getRoomsByUser.
+    get: async () => {
+      const docs = Array.from(store.values()).filter(
+        (r) => (r as unknown as Record<string, unknown>)[field] === value
+      );
+      return { empty: docs.length === 0, docs: docs.map((d) => ({ data: () => d })) };
+    },
     orderBy: (_f: string, _dir: string) => ({
       get: async () => makeQuerySnap(value),
     }),

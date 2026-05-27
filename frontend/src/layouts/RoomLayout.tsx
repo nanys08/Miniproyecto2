@@ -1,10 +1,29 @@
+import { useEffect, useState } from "react";
 import { Outlet, Link, useParams } from "react-router-dom";
 import Button from "@/components/Button";
+import { getRoom } from "@/services/rooms";
 
-// Layout para una sala de estudio. Sprint 0: solo estructura visual.
-// Las regiones (video, chat, controles) se llenan en Sprints posteriores.
+// Layout para una sala de estudio. Carga el nombre real de la sala desde el
+// backend a partir del :id de la URL; mientras tanto muestra un placeholder.
 export default function RoomLayout() {
   const { id } = useParams();
+  const [roomName, setRoomName] = useState<string | null>(null);
+  const [accessCode, setAccessCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+    getRoom(id)
+      .then((room) => {
+        if (!active) return;
+        setRoomName(room.name);
+        setAccessCode(room.accessCode);
+      })
+      .catch(() => {
+        if (active) setRoomName(null);
+      });
+    return () => { active = false; };
+  }, [id]);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
@@ -14,7 +33,15 @@ export default function RoomLayout() {
             <p className="text-xs uppercase tracking-wide text-slate-400">
               Sala
             </p>
-            <h1 className="text-lg font-semibold">{id ?? "—"}</h1>
+            <h1 className="text-lg font-semibold">{roomName ?? "Cargando…"}</h1>
+            {accessCode && (
+              <p className="mt-0.5 text-xs text-slate-400">
+                Código:{" "}
+                <span className="font-mono font-bold tracking-widest text-slate-200">
+                  {accessCode}
+                </span>
+              </p>
+            )}
           </div>
           <Link to="/dashboard">
             <Button variant="ghost" size="sm" className="text-slate-100 hover:bg-slate-800">

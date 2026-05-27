@@ -45,7 +45,10 @@ export const initSocket = (io: Server): void => {
     const username = profile?.username || "Anónimo";
 
     connectedUsers.set(socket.id, { uid, username });
-    await authService.setUserOnlineStatus(uid, true);
+    // Solo marcar online si el perfil existe en Firestore; si no, .update() lanzaría excepción.
+    if (profile) {
+      await authService.setUserOnlineStatus(uid, true);
+    }
     logger.info(`Socket conectado: ${username} (${socket.id})`);
 
     // TS-02: join-room
@@ -116,7 +119,10 @@ export const initSocket = (io: Server): void => {
         });
       }
       connectedUsers.delete(socket.id);
-      await authService.setUserOnlineStatus(uid, false);
+      // Solo actualizar si el perfil existía (evita error en docs inexistentes)
+      if (profile) {
+        await authService.setUserOnlineStatus(uid, false);
+      }
       logger.info(`Socket desconectado: ${username} (${socket.id})`);
     });
   });

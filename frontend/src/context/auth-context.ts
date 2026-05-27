@@ -23,6 +23,9 @@ export interface AuthContextValue {
     avatar: string,
   ) => Promise<void>;
   logout: () => Promise<void>;
+  /** Re-fetches /auth/me y actualiza el estado del usuario. Útil tras
+   *  completar el registro de Google desde el modal de username. */
+  refreshProfile: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

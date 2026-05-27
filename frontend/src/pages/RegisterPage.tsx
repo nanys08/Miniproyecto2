@@ -6,6 +6,7 @@ import GoogleButton from "@/components/GoogleButton";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
+import { NeedsUsernameError } from "@/context/AuthContext";
 import { api } from "@/services/api";
 
 const AVATARS = [
@@ -24,7 +25,7 @@ const USERNAME_REGEX = /^[a-zA-Z0-9_.]{4,10}$/;
 type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
 export default function RegisterPage() {
-  const { register, loginWithGoogle } = useAuth();
+  const { register, loginWithGoogle, user: authUser, refreshProfile } = useAuth();
   const { show } = useToast();
   const navigate = useNavigate();
 
@@ -45,6 +46,7 @@ export default function RegisterPage() {
 
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const googleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [googleAvatar, setGoogleAvatar] = useState<number | null>(null);
   const [googleAvatarError, setGoogleAvatarError] = useState("");
@@ -55,6 +57,14 @@ export default function RegisterPage() {
   const [googleUsernameError, setGoogleUsernameError] = useState("");
 
   const [loading, setLoading] = useState(false);
+
+  // Si el usuario llegó aquí autenticado con Google pero sin perfil
+  // (redirigido desde /login), mostramos el modal de completar registro.
+  useEffect(() => {
+    if (authUser && !authUser.username) {
+      setShowGoogleModal(true);
+    }
+  }, [authUser]);
 
   useEffect(() => {
     if (!username) { setUsernameStatus("idle"); return; }
@@ -101,8 +111,6 @@ export default function RegisterPage() {
     try {
       await register(email, password, username, fullName, AVATARS[avatar!]);
       show("success", "¡Cuenta creada exitosamente!");
-      // Pequeña espera para que el estado se actualice
-      await new Promise(resolve => setTimeout(resolve, 500));
       navigate("/dashboard", { replace: true });
     } catch {
       setGlobalError("Ocurrió un error de conexión, inténtalo nuevamente");
@@ -119,7 +127,9 @@ export default function RegisterPage() {
       show("success", "Inicio de sesión exitoso");
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      if (err instanceof Error && err.message === "needs-username") {
+      if (err instanceof NeedsUsernameError) {
+        // El usuario se autenticó con Google pero no tiene perfil.
+        // El useEffect detectará authUser sin username y abrirá el modal.
         setShowGoogleModal(true);
       } else {
         setGlobalError("No fue posible iniciar sesión con Google");
@@ -132,10 +142,18 @@ export default function RegisterPage() {
   async function handleGoogleUsernameSubmit(e: FormEvent) {
     e.preventDefault();
     if (googleAvatar === null) { setGoogleAvatarError("Elige un avatar"); return; }
-    if (!USERNAME_REGEX.test(googleUsername)) { setGoogleUsernameError("Username inválido"); return; }    if (googleUsernameStatus !== "available") { setGoogleUsernameError("Elige un username disponible"); return; }
+    if (!USERNAME_REGEX.test(googleUsername)) { setGoogleUsernameError("Username inválido"); return; }
+    if (googleUsernameStatus !== "available") { setGoogleUsernameError("Elige un username disponible"); return; }
     setGoogleLoading(true);
     try {
-      await api.post("/auth/register", { username: googleUsername, fullName: sessionStorage.getItem("google-displayName") ?? "Usuario", avatar: AVATARS[googleAvatar], provider: "google" });
+      await api.post("/auth/register", {
+        username: googleUsername,
+        fullName: sessionStorage.getItem("google-displayName") || authUser?.displayName || "Usuario",
+        avatar: AVATARS[googleAvatar],
+        provider: "google",
+      });
+      // Refrescar el estado del usuario con el perfil recién creado
+      await refreshProfile();
       show("success", "¡Cuenta creada exitosamente!");
       setShowGoogleModal(false);
       navigate("/dashboard", { replace: true });
@@ -148,28 +166,19 @@ export default function RegisterPage() {
 
   return (
     <>
-      {/* ¡CAMBIO CLAVE AQUÍ! 
-        Usamos fixed e inset-0 para romper cualquier layout roto del padre 
-        y asegurar que ocupe TODA la pantalla del navegador de forma limpia.
-      */}
       <div className="fixed inset-0 w-screen h-screen bg-slate-50 overflow-y-auto flex items-start justify-center py-12 px-4 box-border z-10">
-        
-        {/* Card contenedor con ancho estricto e independiente para que no se deje aplastar */}
         <div className="w-full max-w-[850px] my-auto bg-white rounded-2xl p-6 md:p-10 shadow-[0_4px_25px_rgba(0,0,0,0.04)] border border-slate-100 box-border block text-left">
 
-          {/* Logo superior izquierdo */}
           <div className="flex items-center gap-3 mb-6 w-full">
             <Logo size="lg" showText={false} />
             <span className="text-xl font-bold text-slate-900 tracking-tight">EstudioColab</span>
           </div>
 
-          {/* Títulos Encabezado */}
           <div className="text-center mb-6 w-full">
             <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Crea tu cuenta</h1>
             <p className="mt-1 text-sm text-slate-500">Únete y empieza a estudiar en equipo</p>
           </div>
 
-          {/* Google Button */}
           <div className="max-w-md mx-auto mb-6 w-full">
             <GoogleButton
               type="button"
@@ -179,7 +188,6 @@ export default function RegisterPage() {
             />
           </div>
 
-          {/* Separador "o" */}
           <div className="my-6 flex items-center gap-3 w-full" aria-hidden="true">
             <div className="h-px flex-1 bg-slate-200" />
             <span className="text-sm text-slate-400">o</span>
@@ -195,14 +203,11 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-6 w-full box-border">
 
-            {/* Sección Avatares - Forzado en CSS puro para evitar fallos con los layouts externos */}
             <fieldset className="w-full block box-border">
               <legend className="mb-4 text-base font-bold text-slate-900">Avatares</legend>
               {avatarError && (
                 <p role="alert" className="mb-2 text-sm text-red-600">⚠ {avatarError}</p>
               )}
-              
-              {/* Estructura grid de 8 columnas inquebrantable */}
               <div
                 className={`grid grid-cols-8 gap-2 md:gap-3 w-full items-end ${avatarError ? "ring-2 ring-red-400 rounded-xl p-2" : ""}`}
                 role="radiogroup"
@@ -211,12 +216,9 @@ export default function RegisterPage() {
               >
                 {AVATARS.map((src, i) => (
                   <div key={i} className="flex flex-col items-center w-full box-border">
-                    {/* Número arriba */}
                     <span className="text-sm font-bold text-slate-900 mb-1.5 block text-center">
                       {i + 1}
                     </span>
-                    
-                    {/* Botón del Avatar */}
                     <button
                       type="button"
                       role="radio"
@@ -244,7 +246,6 @@ export default function RegisterPage() {
               </div>
             </fieldset>
 
-            {/* Nombre completo + Correo electrónico en dos columnas reales */}
             <div className="grid grid-cols-2 gap-5 w-full" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
               <Input
                 label="Nombre completo"
@@ -265,7 +266,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Username + Contraseña en dos columnas reales */}
             <div className="grid grid-cols-2 gap-5 w-full" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
               <div className="flex flex-col gap-1 w-full">
                 <Input
@@ -311,7 +311,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Términos y condiciones */}
             <div className="mt-2 w-full">
               <label className="flex items-start gap-2.5 text-sm text-slate-600 cursor-pointer w-full">
                 <input
@@ -351,7 +350,7 @@ export default function RegisterPage() {
         </div>
       </div>
 
-      {/* Modal username para Google */}
+      {/* Modal de completar perfil (usuario de Google sin username) */}
       {showGoogleModal && (
         <div
           role="dialog"
@@ -363,24 +362,26 @@ export default function RegisterPage() {
             <h2 id="google-modal-title" className="text-lg font-bold text-slate-900">
               Completa tu perfil
             </h2>
-            <p className="mt-1 text-xs text-slate-500">Elige un username único para tu cuenta</p>
-              <div className="mt-4">
-                <p className="text-sm font-medium text-slate-800 mb-2">Elige tu avatar</p>
-                {googleAvatarError && <p className="text-xs text-red-600 mb-1">⚠ {googleAvatarError}</p>}
-                <div className="grid grid-cols-8 gap-1.5">
-                  {AVATARS.map((src, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => { setGoogleAvatar(i); setGoogleAvatarError(""); }}
-                      className={`relative aspect-square rounded-lg overflow-hidden transition-all
-                        ${googleAvatar === i ? "ring-2 ring-blue-500 ring-offset-1" : "ring-1 ring-slate-200 hover:ring-slate-300"}`}
-                    >
-                      <img src={src} alt={`Avatar ${i + 1}`} className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                </div>    
+            <p className="mt-1 text-xs text-slate-500">Elige un avatar y un username único para tu cuenta</p>
+
+            <div className="mt-4">
+              <p className="text-sm font-medium text-slate-800 mb-2">Elige tu avatar</p>
+              {googleAvatarError && <p className="text-xs text-red-600 mb-1">⚠ {googleAvatarError}</p>}
+              <div className="grid grid-cols-8 gap-1.5">
+                {AVATARS.map((src, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => { setGoogleAvatar(i); setGoogleAvatarError(""); }}
+                    className={`relative aspect-square rounded-lg overflow-hidden transition-all
+                      ${googleAvatar === i ? "ring-2 ring-blue-500 ring-offset-1" : "ring-1 ring-slate-200 hover:ring-slate-300"}`}
+                  >
+                    <img src={src} alt={`Avatar ${i + 1}`} className="w-full h-full object-cover" />
+                  </button>
+                ))}
               </div>
+            </div>
+
             <form onSubmit={handleGoogleUsernameSubmit} className="mt-4 flex flex-col gap-3" noValidate>
               <div>
                 <Input
@@ -388,19 +389,20 @@ export default function RegisterPage() {
                   placeholder="ej. juanp2026"
                   value={googleUsername}
                   onChange={(e) => {
-                    setGoogleUsername(e.target.value);
+                    const val = e.target.value;
+                    setGoogleUsername(val);
                     setGoogleUsernameError("");
-                    if (debounceRef.current) clearTimeout(debounceRef.current);
-                    if (USERNAME_REGEX.test(e.target.value)) {
+                    if (googleDebounceRef.current) clearTimeout(googleDebounceRef.current);
+                    if (USERNAME_REGEX.test(val)) {
                       setGoogleUsernameStatus("checking");
-                      debounceRef.current = setTimeout(async () => {
+                      googleDebounceRef.current = setTimeout(async () => {
                         try {
-                          const res = await api.get<{ available: boolean }>(`/auth/check-username/${e.target.value}`);
+                          const res = await api.get<{ available: boolean }>(`/auth/check-username/${val}`);
                           setGoogleUsernameStatus(res.available ? "available" : "taken");
                         } catch { setGoogleUsernameStatus("idle"); }
                       }, 500);
                     } else {
-                      setGoogleUsernameStatus("invalid");
+                      setGoogleUsernameStatus(val.length === 0 ? "idle" : "invalid");
                     }
                   }}
                   error={googleUsernameError}
@@ -411,10 +413,10 @@ export default function RegisterPage() {
                 {!googleUsernameError && googleUsernameStatus === "taken" && (
                   <p className="mt-1 text-xs text-amber-600" role="status" aria-live="polite">⚠ Username ocupado</p>
                 )}
+                {!googleUsernameError && googleUsernameStatus === "checking" && (
+                  <p className="mt-1 text-xs text-slate-400" role="status" aria-live="polite">Verificando...</p>
+                )}
               </div>
-              {googleUsernameError && (
-                <p role="alert" className="text-xs text-red-600">{googleUsernameError}</p>
-              )}
               <Button type="submit" isLoading={googleLoading} className="w-full !rounded-xl">
                 Guardar y continuar
               </Button>

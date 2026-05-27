@@ -6,6 +6,7 @@ import GoogleButton from "@/components/GoogleButton";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
+import { NeedsUsernameError } from "@/context/AuthContext";
 
 export default function LoginPage() {
   const { login, loginWithGoogle } = useAuth();
@@ -16,7 +17,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [showRegisterLink, setShowRegisterLink] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -42,16 +42,16 @@ export default function LoginPage() {
 
   async function handleGoogle() {
     setError(null);
-    setShowRegisterLink(false);
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
       show("success", "Sesión iniciada con Google");
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      if (err instanceof Error && err.message === "needs-username") {
-        setError("Esta cuenta de Google no está registrada.");
-        setShowRegisterLink(true);
+      if (err instanceof NeedsUsernameError) {
+        // El usuario se autenticó con Google pero aún no tiene perfil.
+        // Redirigimos a /register donde podrá elegir su username.
+        navigate("/register", { replace: true });
       } else {
         setError("No se pudo iniciar sesión con Google");
       }
@@ -118,11 +118,6 @@ export default function LoginPage() {
         {error && (
           <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
             <p>{error}</p>
-            {showRegisterLink && (
-              <Link to="/register" className="mt-1 block font-semibold text-blue-600 hover:underline">
-                Ir a registrarse →
-              </Link>
-            )}
           </div>
         )}
 

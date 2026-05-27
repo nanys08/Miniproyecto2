@@ -90,7 +90,7 @@ export default function DashboardLayout() {
     }
   }
 
-  const displayName = user?.email?.split("@")[0] ?? "Usuario";
+  const displayName = user?.username ?? user?.displayName ?? user?.email?.split("@")[0] ?? "Usuario";
 
   const SidebarContent = (
     <div className="flex h-full flex-col">

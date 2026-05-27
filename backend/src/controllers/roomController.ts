@@ -50,7 +50,7 @@ export const createRoom = async (
 ): Promise<void> => {
   try {
     const { uid } = req.user!;
-    const { name } = req.body ?? {};
+    const { name, accessCode } = req.body ?? {};
 
     // Validar nombre obligatorio
     if (
@@ -74,10 +74,41 @@ export const createRoom = async (
       return;
     }
 
-    const room = await roomService.createRoom(uid, trimmedName);
+    const code = typeof accessCode === "string" ? accessCode : undefined;
+    const room = await roomService.createRoom(uid, trimmedName, code);
     res.status(201).json({ room });
   } catch (err) {
     sendError(res, err, "createRoom");
+  }
+};
+
+/**
+ * **GET /api/rooms/join/:code** — Busca una sala por su código de acceso.
+ *
+ * Usado por el flujo "Unirme a sala". Devuelve la sala para que el frontend
+ * pueda redirigir a `/room/{roomId}`.
+ *
+ * @param req Path param `code`.
+ * @param res 200 con `{ room }`, 404 `ROOM_NOT_FOUND` si el código no existe.
+ */
+export const joinRoomByCode = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { code } = req.params as { code: string };
+    if (!code || !code.trim()) {
+      res.status(400).json(buildError(ErrorCode.ROOM_CODE_INVALID));
+      return;
+    }
+    const room = await roomService.getRoomByAccessCode(code);
+    if (!room) {
+      res.status(404).json(buildError(ErrorCode.ROOM_NOT_FOUND));
+      return;
+    }
+    res.json({ room });
+  } catch (err) {
+    sendError(res, err, "joinRoomByCode");
   }
 };
 

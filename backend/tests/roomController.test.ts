@@ -11,12 +11,14 @@ const createRoomMock = jest.fn();
 const getRoomsByUserMock = jest.fn();
 const getRoomByIdMock = jest.fn();
 const deleteRoomMock = jest.fn();
+const getRoomByAccessCodeMock = jest.fn();
 
 jest.mock("../src/services/roomService", () => ({
   createRoom: (...args: unknown[]) => createRoomMock(...args),
   getRoomsByUser: (...args: unknown[]) => getRoomsByUserMock(...args),
   getRoomById: (...args: unknown[]) => getRoomByIdMock(...args),
   deleteRoom: (...args: unknown[]) => deleteRoomMock(...args),
+  getRoomByAccessCode: (...args: unknown[]) => getRoomByAccessCodeMock(...args),
 }));
 
 jest.mock("../src/utils/logger", () => ({
@@ -60,6 +62,7 @@ const fakeRoom = {
   roomId: "room-abc123",
   name: "Sala Matemáticas",
   ownerId: "owner-uid",
+  accessCode: "B6K3F2",
   createdAt: new Date(),
   participants: ["owner-uid"],
   isActive: true,
@@ -70,6 +73,7 @@ beforeEach(() => {
   getRoomsByUserMock.mockReset();
   getRoomByIdMock.mockReset();
   deleteRoomMock.mockReset();
+  getRoomByAccessCodeMock.mockReset();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,7 +114,7 @@ describe("createRoom", () => {
     await roomController.createRoom(req, res);
     expect(res.statusCode).toBe(201);
     expect((res.body as { room: unknown }).room).toEqual(fakeRoom);
-    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Matemáticas");
+    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Matemáticas", undefined);
   });
 
   it("trimmea el nombre antes de guardar", async () => {
@@ -118,7 +122,15 @@ describe("createRoom", () => {
     const req = baseReq({ body: { name: "  Sala Física  " } });
     const res = buildRes();
     await roomController.createRoom(req, res);
-    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Física");
+    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Física", undefined);
+  });
+
+  it("pasa el accessCode al service cuando viene en el body", async () => {
+    createRoomMock.mockResolvedValue({ ...fakeRoom, accessCode: "B6K3F2" });
+    const req = baseReq({ body: { name: "Sala Mate", accessCode: "B6K3F2" } });
+    const res = buildRes();
+    await roomController.createRoom(req, res);
+    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Mate", "B6K3F2");
   });
 
   it("500 INTERNAL_ERROR cuando el service lanza error desconocido", async () => {
@@ -251,5 +263,47 @@ describe("deleteRoom", () => {
     await roomController.deleteRoom(req, res);
     expect(res.statusCode).toBe(404);
     expect((res.body as { error: string }).error).toBe("ROOM_NOT_FOUND");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/rooms/join/:code — joinRoomByCode
+// ─────────────────────────────────────────────────────────────────────────────
+describe("joinRoomByCode", () => {
+  it("200 con la sala cuando el código existe", async () => {
+    getRoomByAccessCodeMock.mockResolvedValue(fakeRoom);
+    const req = baseReq({ params: { code: "B6K3F2" } });
+    const res = buildRes();
+    await roomController.joinRoomByCode(req, res);
+    expect((res.body as { room: typeof fakeRoom }).room.roomId).toBe("room-abc123");
+    expect(getRoomByAccessCodeMock).toHaveBeenCalledWith("B6K3F2");
+  });
+
+  it("400 ROOM_CODE_INVALID cuando el código está vacío", async () => {
+    const req = baseReq({ params: { code: "   " } });
+    const res = buildRes();
+    await roomController.joinRoomByCode(req, res);
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: string }).error).toBe("ROOM_CODE_INVALID");
+    expect(getRoomByAccessCodeMock).not.toHaveBeenCalled();
+  });
+
+  it("404 ROOM_NOT_FOUND cuando ninguna sala coincide", async () => {
+    getRoomByAccessCodeMock.mockResolvedValue(null);
+    const req = baseReq({ params: { code: "ZZZZZZ" } });
+    const res = buildRes();
+    await roomController.joinRoomByCode(req, res);
+    expect(res.statusCode).toBe(404);
+    expect((res.body as { error: string }).error).toBe("ROOM_NOT_FOUND");
+  });
+
+  it("500 INTERNAL_ERROR oculta detalles internos", async () => {
+    getRoomByAccessCodeMock.mockRejectedValue(new Error("Firestore down"));
+    const req = baseReq({ params: { code: "B6K3F2" } });
+    const res = buildRes();
+    await roomController.joinRoomByCode(req, res);
+    expect(res.statusCode).toBe(500);
+    expect((res.body as { error: string }).error).toBe("INTERNAL_ERROR");
+    expect(JSON.stringify(res.body)).not.toContain("Firestore down");
   });
 });

@@ -39,6 +39,7 @@ export const ErrorCode = {
 
   // Salas
   ROOM_NAME_INVALID: "ROOM_NAME_INVALID",
+  ROOM_CODE_INVALID: "ROOM_CODE_INVALID",
   ROOM_NOT_FOUND: "ROOM_NOT_FOUND",
 
   // Genérico — usar cuando el origen es interno (Firebase, red, etc.)
@@ -72,6 +73,7 @@ export const DEFAULT_MESSAGES: Record<ErrorCodeValue, string> = {
   PROFILE_ALREADY_EXISTS: "El perfil ya existe para este usuario",
   PROFILE_NOT_FOUND: "Perfil no encontrado",
   ROOM_NAME_INVALID: "El nombre de la sala es inválido o está vacío",
+  ROOM_CODE_INVALID: "El código de acceso es inválido",
   ROOM_NOT_FOUND: "Sala no encontrada",
   INTERNAL_ERROR: "Error interno del servidor",
 };

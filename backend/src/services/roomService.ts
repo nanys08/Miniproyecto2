@@ -13,23 +13,44 @@ import { Room, ROOMS_COLLECTION } from "../models/Room";
 import { AppError, ErrorCode } from "../utils/errors";
 import { logger } from "../utils/logger";
 
+/** Alfabeto del código de acceso: sin caracteres ambiguos (0/O, 1/I/L). */
+const ACCESS_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const ACCESS_CODE_LENGTH = 6;
+
+/** Genera un código de acceso corto aleatorio (ej. "B6K3F2"). */
+const generateAccessCode = (): string => {
+  let code = "";
+  for (let i = 0; i < ACCESS_CODE_LENGTH; i++) {
+    const idx = Math.floor(Math.random() * ACCESS_CODE_ALPHABET.length);
+    code += ACCESS_CODE_ALPHABET[idx];
+  }
+  return code;
+};
+
 /**
  * Crea una nueva sala de estudio en Firestore.
  *
  * El ID de sala lo genera Firestore automáticamente (`doc()` sin argumentos),
  * garantizando unicidad global sin colisiones ni contador secuencial.
  *
- * @param ownerId  UID del usuario autenticado que crea la sala.
- * @param name     Nombre de la sala (ya validado y trimmed en el controller).
+ * @param ownerId     UID del usuario autenticado que crea la sala.
+ * @param name        Nombre de la sala (ya validado y trimmed en el controller).
+ * @param accessCode  Código de acceso pre-generado por el cliente. Si se omite,
+ *                    el backend genera uno.
  * @returns El documento `Room` recién creado.
  */
-export const createRoom = async (ownerId: string, name: string): Promise<Room> => {
+export const createRoom = async (
+  ownerId: string,
+  name: string,
+  accessCode?: string
+): Promise<Room> => {
   const docRef = db.collection(ROOMS_COLLECTION).doc(); // ID único auto-generado
 
   const room: Room = {
     roomId: docRef.id,
     name,
     ownerId,
+    accessCode: accessCode && accessCode.trim() ? accessCode.trim().toUpperCase() : generateAccessCode(),
     createdAt: new Date(),
     participants: [ownerId], // El creador es automáticamente participante
     isActive: true,
@@ -38,6 +59,25 @@ export const createRoom = async (ownerId: string, name: string): Promise<Room> =
   await docRef.set(room);
   logger.info(`Sala creada: "${name}" (${docRef.id}) por ${ownerId}`);
   return room;
+};
+
+/**
+ * Busca una sala por su código de acceso (case-insensitive).
+ *
+ * Usado por el flujo "Unirme a sala" desde el dashboard.
+ *
+ * @param accessCode  Código de acceso compartido (ej. "B6K3F2").
+ * @returns El documento `Room` o `null` si ningún documento coincide.
+ */
+export const getRoomByAccessCode = async (accessCode: string): Promise<Room | null> => {
+  const snap = await db
+    .collection(ROOMS_COLLECTION)
+    .where("accessCode", "==", accessCode.trim().toUpperCase())
+    .limit(1)
+    .get();
+
+  if (snap.empty) return null;
+  return snap.docs[0].data() as Room;
 };
 
 /**

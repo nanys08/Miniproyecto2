@@ -210,7 +210,7 @@ const options: swaggerJsdoc.Options = {
         },
         Room: {
           type: "object",
-          required: ["roomId", "name", "ownerId", "createdAt", "participants", "isActive"],
+          required: ["roomId", "name", "ownerId", "accessCode", "createdAt", "participants", "isActive"],
           description:
             "Documento `rooms/{roomId}` en Firestore. " +
             "El `roomId` coincide con el ID del documento.",
@@ -229,6 +229,11 @@ const options: swaggerJsdoc.Options = {
               type: "string",
               example: "abc123",
               description: "UID Firebase del creador de la sala.",
+            },
+            accessCode: {
+              type: "string",
+              example: "B6K3F2",
+              description: "Código de acceso de 6 caracteres para compartir/unirse.",
             },
             createdAt: {
               type: "string",
@@ -256,6 +261,13 @@ const options: swaggerJsdoc.Options = {
               type: "string",
               example: "Sala Matemáticas",
               description: "Nombre de la sala (1-100 caracteres). Obligatorio.",
+            },
+            accessCode: {
+              type: "string",
+              example: "B6K3F2",
+              description:
+                "Código de acceso pre-generado por el cliente (opcional). " +
+                "Si se omite, el backend genera uno automáticamente.",
             },
           },
         },
@@ -294,6 +306,7 @@ const options: swaggerJsdoc.Options = {
                 "PROFILE_ALREADY_EXISTS",
                 "PROFILE_NOT_FOUND",
                 "ROOM_NAME_INVALID",
+                "ROOM_CODE_INVALID",
                 "ROOM_NOT_FOUND",
                 "INTERNAL_ERROR",
               ],

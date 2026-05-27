@@ -1,27 +1,85 @@
-import { useState, type ReactNode } from "react";
-import Button from "@/components/Button";
-import Modal from "@/components/Modal";
-import Input from "@/components/Input";
+/**
+ * DashboardPage — Panel principal de gestión de salas de EstudioColab.
+ *
+ * Contenido:
+ *  - Saludo + botón "+ Crear sala" fijo arriba a la derecha.
+ *  - Dos tarjetas de acción: "Crear sala nueva" y "Unirme a sala".
+ *  - Sección "Salas recientes": loading / estado vacío con onboarding / lista.
+ *
+ * La lista se actualiza automáticamente al montar y cuando la ventana recupera
+ * el foco (p. ej. al volver de una sala recién creada).
+ */
+
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
+import Button from "@/components/Button";
+import Loader from "@/components/Loader";
+import CreateRoomModal from "@/components/rooms/CreateRoomModal";
+import JoinRoomModal from "@/components/rooms/JoinRoomModal";
+import { listMyRooms, type Room } from "@/services/rooms";
+
+type LoadState = "loading" | "ready" | "error";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { show } = useToast();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
   const [openCreate, setOpenCreate] = useState(false);
-  const [roomName, setRoomName] = useState("");
+  const [openJoin, setOpenJoin] = useState(false);
 
-  const displayName = user?.username ?? user?.displayName ?? user?.email?.split("@")[0] ?? "estudiante";
+  const displayName =
+    user?.username ?? user?.displayName ?? user?.email?.split("@")[0] ?? "estudiante";
 
-  function handleCreateRoom() {
+  const fetchRooms = useCallback(async () => {
+    try {
+      const list = await listMyRooms();
+      setRooms(list);
+      setLoadState("ready");
+    } catch {
+      setLoadState("error");
+    }
+  }, []);
+
+  // Carga inicial + recarga al recuperar foco (mantiene la lista fresca).
+  useEffect(() => {
+    void fetchRooms();
+    const onFocus = () => void fetchRooms();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [fetchRooms]);
+
+  // Atajo desde el sidebar: /dashboard?action=create | ?action=join
+  useEffect(() => {
+    const action = searchParams.get("action");
+    if (action !== "create" && action !== "join") return;
+    if (action === "create") setOpenCreate(true);
+    if (action === "join") setOpenJoin(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("action");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  function handleCreated(room: Room) {
     setOpenCreate(false);
-    setRoomName("");
-    show("info", "El CRUD de salas se habilita en el Sprint 1");
+    show("success", "La sala fue creada con éxito");
+    navigate(`/room/${room.roomId}`);
+  }
+
+  function handleJoined(room: Room) {
+    setOpenJoin(false);
+    navigate(`/room/${room.roomId}`);
   }
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Greeting + CTA */}
+      {/* ── Saludo + CTA ── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">
@@ -29,127 +87,158 @@ export default function DashboardPage() {
           </h1>
           <p className="mt-1 text-slate-600">¿Qué vamos a estudiar hoy?</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            aria-label="Ver notificaciones"
-            className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 focus-visible:ring-brand-600"
-          >
-            <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-              <path
-                d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <span
-              aria-hidden="true"
-              className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500"
-            />
-          </button>
-          <Button onClick={() => setOpenCreate(true)}>+ Crear sala</Button>
-        </div>
+        <Button onClick={() => setOpenCreate(true)}>+ Crear sala</Button>
       </div>
 
-      {/* Tres cards de acciones */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* ── Dos tarjetas de acción ── */}
+      <div className="grid gap-4 sm:grid-cols-2">
         <ActionCard
           onClick={() => setOpenCreate(true)}
           color="brand"
           icon={
             <svg viewBox="0 0 24 24" fill="none" className="h-8 w-8">
-              <path
-                d="M12 5v14m-7-7h14"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
+              <path d="M12 5v14m-7-7h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           }
           title="Crear sala nueva"
           description="Invita a tus compañeros ahora"
         />
         <ActionCard
-          onClick={() => show("info", "Disponible en Sprint 1")}
+          onClick={() => setOpenJoin(true)}
           color="amber"
           icon={
             <svg viewBox="0 0 24 24" fill="none" className="h-8 w-8">
-              <path
-                d="M15 7a3 3 0 11-6 0 3 3 0 016 0z"
-                stroke="currentColor"
-                strokeWidth="2"
-              />
-              <path
-                d="M9 10l-6 6 2 2 2-2 1 1 2-2 2 2"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              <path d="M15 7a3 3 0 11-6 0 3 3 0 016 0z" stroke="currentColor" strokeWidth="2" />
+              <path d="M9 10l-6 6 2 2 2-2 1 1 2-2 2 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           }
           title="Unirme a sala"
           description="Ingresa un código"
         />
-        <ActionCard
-          onClick={() => show("info", "Disponible en Sprint 1")}
-          color="green"
-          icon={
-            <svg viewBox="0 0 24 24" fill="none" className="h-8 w-8">
-              <rect x="3" y="4" width="7" height="7" rx="1" fill="#22c55e" />
-              <rect x="14" y="4" width="7" height="7" rx="1" fill="#a855f7" />
-              <rect x="3" y="14" width="7" height="7" rx="1" fill="#3b82f6" />
-              <rect x="14" y="14" width="7" height="7" rx="1" fill="#fb923c" />
-            </svg>
-          }
-          title="Salas públicas"
-          description="Explora temas del momento"
-        />
       </div>
 
-      {/* Salas recientes */}
+      {/* ── Salas recientes ── */}
       <section aria-labelledby="recientes-title">
         <h2 id="recientes-title" className="mb-4 text-xl font-bold text-slate-900">
           Salas recientes
         </h2>
+
+        {loadState === "loading" && (
+          <div className="py-10">
+            <Loader label="Cargando tus salas" />
+          </div>
+        )}
+
+        {loadState === "error" && (
+          <div
+            role="alert"
+            className="flex flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-6 py-10 text-center"
+          >
+            <p className="text-sm font-medium text-red-800">
+              No se pudieron cargar tus salas.
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => { setLoadState("loading"); void fetchRooms(); }}>
+              Reintentar
+            </Button>
+          </div>
+        )}
+
+        {loadState === "ready" && rooms.length === 0 && <EmptyState />}
+
+        {loadState === "ready" && rooms.length > 0 && (
+          <ul className="grid gap-4 sm:grid-cols-2">
+            {rooms.map((room) => (
+              <li key={room.roomId}>
+                <RoomCard room={room} onEnter={() => navigate(`/room/${room.roomId}`)} />
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
-      <Modal
+      <CreateRoomModal
         open={openCreate}
         onClose={() => setOpenCreate(false)}
-        title="Crear sala nueva"
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleCreateRoom();
-          }}
-          className="flex flex-col gap-4"
-        >
-          <Input
-            label="Nombre de la sala"
-            placeholder="Ej. Cálculo III - Repaso parcial"
-            value={roomName}
-            onChange={(e) => setRoomName(e.target.value)}
-            required
-          />
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setOpenCreate(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit">Crear</Button>
-          </div>
-        </form>
-      </Modal>
+        onCreated={handleCreated}
+      />
+      <JoinRoomModal
+        open={openJoin}
+        onClose={() => setOpenJoin(false)}
+        onJoined={handleJoined}
+      />
     </div>
   );
 }
 
+// ─── Estado vacío (onboarding) ───────────────────────────────────────────────
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+      <span aria-hidden="true" className="text-4xl">📚</span>
+      <p className="text-lg font-bold text-slate-900">
+        ¡Aún no tienes salas activas!
+      </p>
+      <p className="max-w-md text-slate-600">
+        Aquí es donde podrás ver tu historial de estudio colaborativo.
+        ¡Crea tu primera sala de estudio o únete a una para empezar!
+      </p>
+    </div>
+  );
+}
+
+// ─── Tarjeta de sala ─────────────────────────────────────────────────────────
+
+interface RoomCardProps {
+  room: Room;
+  onEnter: () => void;
+}
+
+function RoomCard({ room, onEnter }: RoomCardProps) {
+  const participantes = room.participants?.length ?? 0;
+  return (
+    <div className="flex h-full flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-base font-semibold text-slate-900">{room.name}</h3>
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium",
+            room.isActive
+              ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+              : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+          )}
+        >
+          {room.isActive ? "Activa" : "Finalizada"}
+        </span>
+      </div>
+
+      <p className="text-sm text-slate-500">
+        Código:{" "}
+        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-bold tracking-widest text-slate-800">
+          {room.accessCode}
+        </span>
+      </p>
+
+      <div className="mt-auto flex items-center justify-between gap-3 pt-1">
+        <span className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+          <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
+            <path d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6 0a4 4 0 100-8 4 4 0 000 8z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {participantes} {participantes === 1 ? "participante" : "participantes"}
+        </span>
+        <Button size="sm" onClick={onEnter}>
+          Entrar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tarjeta de acción ───────────────────────────────────────────────────────
+
 interface ActionCardProps {
   onClick: () => void;
-  color: "brand" | "amber" | "green";
+  color: "brand" | "amber";
   icon: ReactNode;
   title: string;
   description: string;
@@ -159,7 +248,6 @@ function ActionCard({ onClick, color, icon, title, description }: ActionCardProp
   const colorMap = {
     brand: "text-brand-600",
     amber: "text-amber-500",
-    green: "text-green-600",
   };
   return (
     <button
@@ -177,4 +265,3 @@ function ActionCard({ onClick, color, icon, title, description }: ActionCardProp
     </button>
   );
 }
-

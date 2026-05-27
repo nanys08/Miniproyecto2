@@ -92,6 +92,58 @@ router.get("/", verifyToken, roomController.getRooms);
 
 /**
  * @openapi
+ * /api/rooms/join/{code}:
+ *   get:
+ *     tags: [Rooms]
+ *     summary: Busca una sala por su código de acceso
+ *     description: |
+ *       Resuelve un código de acceso compartido (ej. `B6K3F2`) a su sala.
+ *       Usado por el flujo "Unirme a sala": el frontend recibe la sala y
+ *       redirige a `/room/{roomId}`.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: code
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Código de acceso de 6 caracteres alfanuméricos.
+ *         example: B6K3F2
+ *     responses:
+ *       200:
+ *         description: Sala encontrada.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 room:
+ *                   $ref: '#/components/schemas/Room'
+ *       400:
+ *         description: Código ausente o inválido.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         description: No existe ninguna sala con ese código.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               error: ROOM_NOT_FOUND
+ *               message: Sala no encontrada
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
+ */
+router.get("/join/:code", verifyToken, roomController.joinRoomByCode);
+
+/**
+ * @openapi
  * /api/rooms/{roomId}:
  *   get:
  *     tags: [Rooms]

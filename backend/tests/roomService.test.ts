@@ -43,13 +43,15 @@ const collectionMock = {
     const resolvedId = id ?? `auto-id-${++autoIdCounter}`;
     return makeDocRef(resolvedId);
   },
-  where: (_field: string, _op: string, value: string) => ({
+  where: (field: string, _op: string, value: string) => ({
     orderBy: (_f: string, _dir: string) => ({
       get: async () => makeQuerySnap(value),
     }),
     limit: (_n: number) => ({
       get: async () => {
-        const docs = Array.from(store.values()).filter((r) => r.ownerId === value);
+        const docs = Array.from(store.values()).filter(
+          (r) => (r as unknown as Record<string, unknown>)[field] === value
+        );
         return { empty: docs.length === 0, docs: docs.map((d) => ({ data: () => d })) };
       },
     }),
@@ -117,6 +119,40 @@ describe("createRoom", () => {
     expect(store.size).toBe(1);
     expect(store.get(room.roomId)?.name).toBe("Sala Química");
   });
+
+  it("genera un accessCode de 6 caracteres si no se provee", async () => {
+    const room = await roomService.createRoom("uid-owner", "Sala Sin Código");
+    expect(room.accessCode).toMatch(/^[A-Z0-9]{6}$/);
+  });
+
+  it("usa el accessCode provisto por el cliente (en mayúsculas)", async () => {
+    const room = await roomService.createRoom("uid-owner", "Sala Con Código", "b6k3f2");
+    expect(room.accessCode).toBe("B6K3F2");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getRoomByAccessCode
+// ─────────────────────────────────────────────────────────────────────────────
+describe("getRoomByAccessCode", () => {
+  it("devuelve la sala cuyo código coincide", async () => {
+    const created = await roomService.createRoom("uid-a", "Sala Join", "ABC123");
+    const found = await roomService.getRoomByAccessCode("ABC123");
+    expect(found).not.toBeNull();
+    expect(found!.roomId).toBe(created.roomId);
+  });
+
+  it("es case-insensitive (normaliza a mayúsculas)", async () => {
+    await roomService.createRoom("uid-a", "Sala Join", "XYZ789");
+    const found = await roomService.getRoomByAccessCode("xyz789");
+    expect(found).not.toBeNull();
+    expect(found!.accessCode).toBe("XYZ789");
+  });
+
+  it("devuelve null si ningún código coincide", async () => {
+    const found = await roomService.getRoomByAccessCode("NADA00");
+    expect(found).toBeNull();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -148,6 +184,7 @@ describe("getRoomsByUser", () => {
       roomId: "r-old",
       name: "Sala Antigua",
       ownerId: "uid-c",
+      accessCode: "OLD123",
       createdAt: new Date("2024-01-01"),
       participants: ["uid-c"],
       isActive: true,
@@ -156,6 +193,7 @@ describe("getRoomsByUser", () => {
       roomId: "r-recent",
       name: "Sala Reciente",
       ownerId: "uid-c",
+      accessCode: "NEW123",
       createdAt: new Date("2024-06-01"),
       participants: ["uid-c"],
       isActive: true,

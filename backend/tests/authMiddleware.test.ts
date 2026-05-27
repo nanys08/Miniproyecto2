@@ -4,7 +4,7 @@
 //   - acceso bloqueado (sin token, header mal formado)
 //   - token inválido / firma rota
 //   - token expirado (auth/id-token-expired)
-//   - token revocado (auth/id-token-revoked) — requiere checkRevoked=true
+//   - token revocado (auth/id-token-revoked) — Firebase puede reportarlo
 
 import type { NextFunction, Response } from "express";
 
@@ -60,7 +60,10 @@ describe("verifyToken — acceso autorizado", () => {
 
     await verifyToken(req, res, next);
 
-    expect(verifyIdTokenMock).toHaveBeenCalledWith("good-token", true);
+    // checkRevoked=false: la verificación criptográfica del token es
+    // suficiente; checkRevoked=true añadía una llamada de red extra a Firebase
+    // que en Render free-tier podía convertir tokens válidos en 401.
+    expect(verifyIdTokenMock).toHaveBeenCalledWith("good-token", false);
     expect(next).toHaveBeenCalledTimes(1);
     expect(req.user).toEqual({ uid: "uid-1", email: "u@u.com" });
     expect(res.statusCode).toBeUndefined();
@@ -151,8 +154,9 @@ describe("verifyToken — token inválido / expirado / revocado", () => {
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
     expect(res.body).toMatchObject({ error: ErrorCode.INVALID_TOKEN });
-    // Confirmamos que el middleware activó checkRevoked=true.
-    expect(verifyIdTokenMock).toHaveBeenCalledWith("revoked", true);
+    // El middleware llama verifyIdToken con checkRevoked=false; si Firebase
+    // igualmente reporta un token revocado, se responde 401.
+    expect(verifyIdTokenMock).toHaveBeenCalledWith("revoked", false);
   });
 
   it("no filtra el detalle interno de Firebase en la respuesta", async () => {

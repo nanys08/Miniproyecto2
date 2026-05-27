@@ -33,12 +33,12 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    to: "/dashboard?tab=buscar",
-    label: "Buscar salas",
+    to: "/dashboard?action=join",
+    label: "Unirme a sala",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-        <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2"/>
-        <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        <path d="M15 7a3 3 0 11-6 0 3 3 0 016 0z" stroke="currentColor" strokeWidth="2"/>
+        <path d="M9 10l-6 6 2 2 2-2 1 1 2-2 2 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
   },
@@ -49,15 +49,6 @@ const navItems: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
         <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
         <path d="M3 9h18" stroke="currentColor" strokeWidth="2"/>
-      </svg>
-    ),
-  },
-  {
-    to: "/dashboard?tab=comunidad",
-    label: "Comunidad",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-        <path d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6 0a4 4 0 100-8 4 4 0 000 8z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
   },

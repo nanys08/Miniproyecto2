@@ -97,6 +97,7 @@ export const updateUserProfile = async (
     username?: string;
     fullName?: string;
     avatar?: string;
+    phone?: string;
   }
 ): Promise<User> => {
   const userRef = db.collection(USERS_COLLECTION).doc(uid);
@@ -126,6 +127,7 @@ export const updateUserProfile = async (
     if (updates.username !== undefined) patch.username = updates.username;
     if (updates.fullName !== undefined) patch.fullName = updates.fullName;
     if (updates.avatar !== undefined) patch.avatar = updates.avatar;
+    if (updates.phone !== undefined) patch.phone = updates.phone;
 
     tx.update(userRef, patch);
     updatedUser = { ...current, ...patch };

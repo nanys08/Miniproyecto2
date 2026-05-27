@@ -193,6 +193,13 @@ const options: swaggerJsdoc.Options = {
               example: "/avatars/avatar3.png",
               description: "Nueva ruta o URL del avatar.",
             },
+            phone: {
+              type: "string",
+              example: "+57 300 123 4567",
+              description:
+                "Teléfono opcional. Cadena vacía borra el valor. " +
+                "No se valida formato en el backend.",
+            },
           },
         },
         CheckResponse: {

@@ -9,6 +9,8 @@ export interface User {
   provider: AuthProvider;
   createdAt: FirebaseFirestore.Timestamp | Date;
   online: boolean;
+  /** Teléfono opcional. Campo libre, no se valida formato en el backend. */
+  phone?: string;
 }
 
 // Colección Firestore: users/{uid}

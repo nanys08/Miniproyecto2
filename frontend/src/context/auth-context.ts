@@ -6,6 +6,7 @@ export interface AppUser {
   username?: string;
   displayName?: string;
   avatar?: string;
+  phone?: string;
   isUnivalle?: boolean;
   university?: string;
 }
@@ -26,6 +27,9 @@ export interface AuthContextValue {
   /** Re-fetches /auth/me y actualiza el estado del usuario. Útil tras
    *  completar el registro de Google desde el modal de username. */
   refreshProfile: () => Promise<void>;
+  /** Elimina la cuenta definitivamente (Firestore + Firebase Auth)
+   *  y limpia el estado de sesión local. */
+  deleteAccount: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

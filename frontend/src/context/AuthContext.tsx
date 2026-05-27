@@ -21,12 +21,12 @@ export class NeedsUsernameError extends Error {
   constructor() { super("needs-username"); }
 }
 
-/** Tipado del subconjunto de la respuesta /auth/me que nos interesa. */
 interface ProfileResponse {
   user: {
     username: string;
     fullName: string;
     avatar: string;
+    phone?: string;
     isUnivalle?: boolean;
     university?: string;
   };
@@ -47,6 +47,7 @@ async function fetchProfile(
       username: res.user.username,
       displayName: res.user.fullName,
       avatar: res.user.avatar,
+      phone: res.user.phone,
       isUnivalle: res.user.isUnivalle,
       university: res.user.university,
     };
@@ -88,30 +89,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       async login(email, password) {
         await signInWithEmailAndPassword(auth!, email, password);
-        // onAuthStateChanged se encarga de actualizar el estado del usuario
       },
 
       async loginWithGoogle() {
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth!, provider);
-        // Guardar displayName de Google para usarlo luego en el modal de registro
         sessionStorage.setItem("google-displayName", result.user.displayName ?? "");
-
-        // Verificar si el usuario ya tiene perfil en Firestore
         const profile = await fetchProfile(result.user).catch(() => null);
         if (!profile) {
-          // Sin perfil: dejar el estado como "parcial" y señalizar al caller
           setUser({ uid: result.user.uid, email: result.user.email });
           throw new NeedsUsernameError();
         }
-        // Con perfil: actualizar estado inmediatamente
         setUser(profile);
       },
 
       async register(email, password, username, fullName, avatar) {
         await createUserWithEmailAndPassword(auth!, email, password);
         await api.post("/auth/register", { username, fullName, avatar, provider: "password" });
-        // Actualizar estado inmediatamente sin esperar al onAuthStateChanged
         const firebaseUser = auth!.currentUser;
         if (firebaseUser) {
           const profile = await fetchProfile(firebaseUser);
@@ -126,6 +120,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (profile) {
           setUser(profile);
         }
+      },
+
+      async deleteAccount() {
+        // 1. Eliminar en backend (Firestore + Firebase Auth)
+        await api.delete("/auth/me");
+        // 2. Limpiar estado local
+        disconnectSocket();
+        if (auth) await signOut(auth);
+        // onAuthStateChanged disparará con null → setUser(null) → ProtectedRoute redirige
       },
 
       async logout() {

@@ -174,14 +174,15 @@ export const updateMe = async (
 ): Promise<void> => {
   try {
     const { uid } = req.user!;
-    const { username, fullName, avatar } = req.body ?? {};
+    const { username, fullName, avatar, phone } = req.body ?? {};
 
     // Verificar que al menos un campo editable fue enviado
     const hasUsername = username !== undefined;
     const hasFullName = fullName !== undefined;
     const hasAvatar = avatar !== undefined;
+    const hasPhone = phone !== undefined;
 
-    if (!hasUsername && !hasFullName && !hasAvatar) {
+    if (!hasUsername && !hasFullName && !hasAvatar && !hasPhone) {
       res.status(400).json(buildError(ErrorCode.MISSING_FIELDS));
       return;
     }
@@ -204,10 +205,12 @@ export const updateMe = async (
       return;
     }
 
-    const updates: { username?: string; fullName?: string; avatar?: string } = {};
+    const updates: { username?: string; fullName?: string; avatar?: string; phone?: string } = {};
     if (hasUsername) updates.username = username as string;
     if (hasFullName) updates.fullName = (fullName as string).trim();
     if (hasAvatar) updates.avatar = avatar as string;
+    // phone puede ser "" para borrar o cualquier string para actualizar
+    if (hasPhone) updates.phone = typeof phone === "string" ? phone.trim() : "";
 
     const user = await authService.updateUserProfile(uid, updates);
     res.json({

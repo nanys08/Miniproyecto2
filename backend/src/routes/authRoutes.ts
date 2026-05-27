@@ -92,22 +92,13 @@ const router = Router();
  *         description: |
  *           Validación falló. Códigos posibles:
  *           - `MISSING_FIELDS`
- *           - `USERNAME_INVALID` (no cumple regex 4-10)
- *           - `USERNAME_FORBIDDEN` (contiene palabra prohibida)
+ *           - `USERNAME_INVALID`
+ *           - `USERNAME_FORBIDDEN`
  *           - `PROVIDER_INVALID`
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             examples:
- *               usernameInvalid:
- *                 value:
- *                   error: USERNAME_INVALID
- *                   message: "username inválido: 4-10 caracteres, solo letras, números, punto y guion bajo"
- *               usernameForbidden:
- *                 value:
- *                   error: USERNAME_FORBIDDEN
- *                   message: "Ese nombre de usuario no está permitido"
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       409:
@@ -116,15 +107,6 @@ const router = Router();
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             examples:
- *               usernameTaken:
- *                 value:
- *                   error: USERNAME_ALREADY_EXISTS
- *                   message: "El nombre de usuario ya está en uso"
- *               profileExists:
- *                 value:
- *                   error: PROFILE_ALREADY_EXISTS
- *                   message: "El perfil ya existe para este usuario"
  *       500:
  *         $ref: '#/components/responses/InternalError'
  */
@@ -168,8 +150,115 @@ router.post("/register", verifyToken, authController.register);
  *               message: "Perfil no encontrado"
  *       500:
  *         $ref: '#/components/responses/InternalError'
+ *   patch:
+ *     tags: [Auth]
+ *     summary: Actualiza los campos editables del perfil
+ *     description: |
+ *       Actualiza uno o más de los campos editables del documento `users/{uid}`:
+ *       `username`, `fullName` y/o `avatar`. Los campos inmutables (`uid`,
+ *       `email`, `provider`, `createdAt`) son ignorados aunque vengan en el body.
+ *
+ *       Al menos uno de los tres campos editables debe estar presente.
+ *
+ *       Si se cambia el `username`, la operación corre dentro de una
+ *       **transacción Firestore** para garantizar unicidad atómica.
+ *       Si el nuevo `username` ya lo usa otro usuario se devuelve
+ *       `409 USERNAME_ALREADY_EXISTS`. Si el `username` enviado coincide
+ *       con el actual del usuario, no se valida unicidad contra terceros
+ *       (la operación es idempotente para ese campo).
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdateProfileRequest'
+ *           examples:
+ *             cambiarUsername:
+ *               summary: Solo username
+ *               value:
+ *                 username: nuevo_user
+ *             cambiarTodo:
+ *               summary: Username + nombre + avatar
+ *               value:
+ *                 username: nuevo_user
+ *                 fullName: Juan P. Actualizado
+ *                 avatar: /avatars/avatar3.png
+ *             soloAvatar:
+ *               summary: Solo avatar
+ *               value:
+ *                 avatar: /avatars/avatar5.png
+ *     responses:
+ *       200:
+ *         description: Perfil actualizado correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: |
+ *           Validación falló. Códigos posibles:
+ *           - `MISSING_FIELDS` — ningún campo editable presente, o `fullName` vacío.
+ *           - `USERNAME_INVALID` — `username` no cumple regex 4-10.
+ *           - `USERNAME_FORBIDDEN` — `username` contiene palabra prohibida.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         description: Perfil no encontrado (no debería ocurrir si el flujo es correcto).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: El nuevo username ya está en uso por otro usuario.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               error: USERNAME_ALREADY_EXISTS
+ *               message: "El nombre de usuario ya está en uso"
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
+ *   delete:
+ *     tags: [Auth]
+ *     summary: Elimina la cuenta del usuario de forma definitiva
+ *     description: |
+ *       Elimina la cuenta completa del usuario autenticado:
+ *       1. Borra el documento `users/{uid}` de Firestore.
+ *       2. Borra el usuario de Firebase Authentication (invalida todos los tokens).
+ *
+ *       **Esta operación es irreversible.** No existe endpoint de recuperación.
+ *
+ *       El frontend debe llamar además a `firebase.auth().signOut()` después
+ *       de recibir el 204 para limpiar el estado local del SDK.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       204:
+ *         description: Cuenta eliminada correctamente (sin body)
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         description: Perfil no encontrado en Firestore.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
  */
 router.get("/me", verifyToken, authController.getMe);
+router.patch("/me", verifyToken, authController.updateMe);
+router.delete("/me", verifyToken, authController.deleteMe);
 
 /**
  * @openapi
@@ -181,10 +270,6 @@ router.get("/me", verifyToken, authController.getMe);
  *       Revoca los refresh tokens del usuario y lo marca offline en Firestore.
  *       El frontend debería además llamar a `firebase.auth().signOut()` localmente
  *       para limpiar el estado del SDK cliente.
- *
- *       Útil para "cerrar sesión en todos los dispositivos". Tras esta llamada,
- *       cualquier ID Token previamente emitido será rechazado por `verifyToken`
- *       (porque el middleware usa `checkRevoked: true`).
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -205,13 +290,15 @@ router.post("/logout", verifyToken, authController.logout);
  *     summary: Verifica si un username está disponible (público)
  *     description: |
  *       Endpoint **público** (sin token). Útil para validación en tiempo real
- *       durante el formulario de registro.
+ *       durante el formulario de registro y de edición de perfil.
  *
- *       Si el username contiene una palabra prohibida (lista negra), se
- *       reporta como `{ available: false }` — no como error 400 — para que
- *       el frontend pinte el mismo estado de "ya en uso" sin lógica nueva.
- *       Si quieres distinguir ambos casos, usa `POST /register` que sí
- *       devuelve `USERNAME_FORBIDDEN`.
+ *       **Nota para edición de perfil:** este endpoint solo reporta si el username
+ *       existe en la colección. Si el usuario envía su propio username actual,
+ *       aparecerá como `available: false`. El frontend debe omitir esa validación
+ *       cuando el username no ha cambiado respecto al actual del usuario.
+ *
+ *       Si el username contiene una palabra prohibida se reporta como
+ *       `{ available: false }` — no como error 400.
  *     parameters:
  *       - in: path
  *         name: username
@@ -226,20 +313,12 @@ router.post("/logout", verifyToken, authController.logout);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/CheckResponse'
- *             examples:
- *               available:
- *                 value: { available: true }
- *               takenOrForbidden:
- *                 value: { available: false }
  *       400:
  *         description: El path param no cumple la regex.
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             example:
- *               error: USERNAME_INVALID
- *               message: "username inválido: 4-10 caracteres, solo letras, números, punto y guion bajo"
  *       500:
  *         $ref: '#/components/responses/InternalError'
  */
@@ -251,13 +330,6 @@ router.get("/check-username/:username", authController.checkUsername);
  *   get:
  *     tags: [Auth]
  *     summary: Verifica si un correo ya está registrado en Firebase Auth (público)
- *     description: |
- *       Endpoint **público** (sin token). Permite al frontend detectar antes
- *       del signup si el correo ya tiene cuenta y mostrar un mensaje claro
- *       ("Ese correo ya está registrado") en vez del genérico de error.
- *
- *       Implementación: usa `admin.auth().getUserByEmail(email)`. Si Firebase
- *       responde `auth/user-not-found`, devolvemos `available: true`.
  *     parameters:
  *       - in: path
  *         name: email
@@ -273,20 +345,12 @@ router.get("/check-username/:username", authController.checkUsername);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/CheckResponse'
- *             examples:
- *               libre:
- *                 value: { available: true }
- *               registrado:
- *                 value: { available: false }
  *       400:
  *         description: Email con formato inválido.
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             example:
- *               error: EMAIL_INVALID
- *               message: "Correo electrónico inválido"
  *       500:
  *         $ref: '#/components/responses/InternalError'
  */
@@ -298,13 +362,6 @@ router.get("/check-email/:email", authController.checkEmail);
  *   get:
  *     tags: [Auth]
  *     summary: Identifica si un correo es del dominio institucional Univalle (público)
- *     description: |
- *       Endpoint **público** (sin token). Devuelve si el correo pertenece a
- *       `@correounivalle.edu.co`. Útil para que el frontend muestre un
- *       badge "Estudiante Univalle" en el formulario de registro mientras
- *       el usuario escribe el correo.
- *
- *       Política actual: solo identifica, **no restringe** registro.
  *     parameters:
  *       - in: path
  *         name: email
@@ -320,24 +377,12 @@ router.get("/check-email/:email", authController.checkEmail);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/UnivalleResponse'
- *             examples:
- *               univalle:
- *                 value:
- *                   isUnivalle: true
- *                   domain: correounivalle.edu.co
- *               externo:
- *                 value:
- *                   isUnivalle: false
- *                   domain: correounivalle.edu.co
  *       400:
  *         description: Email con formato inválido.
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             example:
- *               error: EMAIL_INVALID
- *               message: "Correo electrónico inválido"
  *       500:
  *         $ref: '#/components/responses/InternalError'
  */

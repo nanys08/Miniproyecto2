@@ -76,11 +76,102 @@ export const registerUserProfile = async (
 };
 
 /**
+ * Actualiza campos editables del perfil del usuario en Firestore.
+ *
+ * Campos permitidos: `username`, `fullName`, `avatar`.
+ * Campos inmutables (uid, email, provider, createdAt, online) son ignorados.
+ *
+ * Si se cambia el `username`, la operación corre dentro de una **transacción**
+ * para garantizar unicidad atómica: si otro usuario registró el mismo
+ * username entre la verificación y la escritura, se lanza `USERNAME_ALREADY_EXISTS`.
+ *
+ * @param uid     Firebase UID del propietario del perfil.
+ * @param updates Objeto con los campos a actualizar (todos opcionales).
+ * @returns El documento `User` actualizado (refleja el estado post-escritura).
+ * @throws {AppError} `PROFILE_NOT_FOUND` (404) si el uid no tiene perfil.
+ * @throws {AppError} `USERNAME_ALREADY_EXISTS` (409) si el nuevo username ya está tomado.
+ */
+export const updateUserProfile = async (
+  uid: string,
+  updates: {
+    username?: string;
+    fullName?: string;
+    avatar?: string;
+  }
+): Promise<User> => {
+  const userRef = db.collection(USERS_COLLECTION).doc(uid);
+  let updatedUser: User | null = null;
+
+  await db.runTransaction(async (tx) => {
+    const existingDoc = await tx.get(userRef);
+    if (!existingDoc.exists) {
+      throw new AppError(ErrorCode.PROFILE_NOT_FOUND, 404);
+    }
+    const current = existingDoc.data() as User;
+
+    // Si el username cambia, verificar que no esté en uso por otro usuario
+    if (updates.username !== undefined && updates.username !== current.username) {
+      const usernameQuery = db
+        .collection(USERS_COLLECTION)
+        .where("username", "==", updates.username)
+        .limit(1);
+      const snap = await tx.get(usernameQuery);
+      if (!snap.empty) {
+        throw new AppError(ErrorCode.USERNAME_ALREADY_EXISTS, 409);
+      }
+    }
+
+    // Construir el objeto de cambios con solo los campos permitidos
+    const patch: Partial<User> = {};
+    if (updates.username !== undefined) patch.username = updates.username;
+    if (updates.fullName !== undefined) patch.fullName = updates.fullName;
+    if (updates.avatar !== undefined) patch.avatar = updates.avatar;
+
+    tx.update(userRef, patch);
+    updatedUser = { ...current, ...patch };
+  });
+
+  logger.info(`Perfil actualizado: ${uid}`);
+  return updatedUser!;
+};
+
+/**
+ * Elimina la cuenta del usuario de forma definitiva:
+ *  1. Borra el documento `users/{uid}` de Firestore.
+ *  2. Borra el usuario de Firebase Authentication.
+ *
+ * Orden elegido: Firestore primero. Si falla el paso 2, el doc ya no
+ * existe pero el Auth sí; el usuario puede volver a pedir la eliminación.
+ * En el orden inverso (Auth primero), el token quedaría inválido y ya no
+ * podría autenticarse para reintentar.
+ *
+ * @param uid Firebase UID del usuario a eliminar.
+ * @throws {AppError} `PROFILE_NOT_FOUND` (404) si el uid no tiene perfil en Firestore.
+ */
+export const deleteUserAccount = async (uid: string): Promise<void> => {
+  const userRef = db.collection(USERS_COLLECTION).doc(uid);
+
+  // Verificar que el perfil existe antes de proceder
+  const doc = await userRef.get();
+  if (!doc.exists) {
+    throw new AppError(ErrorCode.PROFILE_NOT_FOUND, 404);
+  }
+
+  // 1. Eliminar documento Firestore
+  await userRef.delete();
+
+  // 2. Eliminar usuario de Firebase Authentication
+  await auth.deleteUser(uid);
+
+  logger.info(`Cuenta eliminada completamente: ${uid}`);
+};
+
+/**
  * Comprueba si un `username` ya está usado en la colección.
  *
  * Lectura simple, sin transacción — válida para el endpoint público
- * `check-username`. La verdad definitiva la dice `registerUserProfile`,
- * que sí corre dentro de transacción.
+ * `check-username`. La verdad definitiva la dice `registerUserProfile` /
+ * `updateUserProfile`, que sí corren dentro de transacción.
  *
  * @param username Username a buscar (exact match).
  * @returns `true` si está tomado, `false` si está libre.

@@ -1,55 +1,90 @@
 rules_version = '2';
 
+// ═══════════════════════════════════════════════════════════════════════════
 // Reglas Firestore — Mini-proyecto 2 "Salón de Estudio Colaborativo"
-// TS-01: Autenticación / perfiles
+// Sprint 1 — TS-01: Autenticación / perfiles
 //
-// Política base:
-//   - Todo el acceso requiere request.auth (token Firebase válido).
-//   - El backend (Admin SDK) bypasea estas reglas: la API REST sigue siendo
-//     la fuente de verdad para validaciones complejas (username único,
-//     formato, provider, etc.). Estas reglas son la red de seguridad por si
-//     el cliente intentara hablarle directo a Firestore.
+// ARQUITECTURA DE SEGURIDAD
+// ──────────────────────────
+// El backend usa Firebase Admin SDK, que bypasea estas reglas por completo.
+// Toda la lógica de negocio (unicidad de username, formato, validación de
+// provider, etc.) vive en la API REST y en el Admin SDK.
+//
+// Estas reglas son la RED DE SEGURIDAD: impiden que un cliente malicioso
+// hable directamente con Firestore usando el SDK de cliente y se salte las
+// validaciones del backend.
+//
+// POLÍTICA BASE
+// ──────────────
+//  • Todo acceso requiere un Firebase ID Token válido (request.auth != null).
+//  • Solo el dueño del documento puede leer su propio perfil completo.
+//    (Otros usuarios solo necesitan username/avatar/online, que el backend
+//    expone vía endpoints; el cliente directo queda restringido.)
+//  • Solo el dueño puede crear, editar y eliminar su propio documento.
+//  • Los campos inmutables (uid, email, provider, createdAt) no pueden
+//    cambiarse desde el cliente aunque sea el propio dueño.
+// ═══════════════════════════════════════════════════════════════════════════
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---------- users/{uid} ----------
+    // ─────────────────────────────────────────────────────────────────────
+    // users/{uid}
+    // ─────────────────────────────────────────────────────────────────────
     match /users/{uid} {
-      // Cualquier usuario autenticado puede leer perfiles (presencia, lista
-      // de salas, avatares). Si más adelante se quiere ocultar email, mover
-      // datos sensibles a un subcolección privada.
-      allow read: if request.auth != null;
 
-      // Solo el dueño del UID puede crear su propio doc, y solo con los
-      // campos exactos del esquema. username único se valida en el backend.
+      // ✅ SOLO EL DUEÑO puede leer su propio perfil completo desde el cliente.
+      // Otros usuarios leen datos de presencia y perfil a través del backend
+      // (Admin SDK), que no está sujeto a estas reglas.
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // ✅ SOLO EL DUEÑO puede crear su propio documento.
+      // Restricciones adicionales:
+      //   - El campo uid del documento debe coincidir con el UID del token.
+      //   - Todos los campos del esquema deben estar presentes.
+      //   - provider solo acepta "password" o "google".
+      //   - username debe ser string de 4-10 chars (la unicidad y profanidad
+      //     se validan en el backend; esto es la red de seguridad mínima).
       allow create: if request.auth != null
                     && request.auth.uid == uid
                     && request.resource.data.uid == uid
                     && request.resource.data.keys().hasAll([
-                         'uid','username','fullName','email','avatar',
-                         'provider','createdAt','online'
+                         'uid', 'username', 'fullName', 'email',
+                         'avatar', 'provider', 'createdAt', 'online'
                        ])
-                    && request.resource.data.provider in ['password','google']
+                    && request.resource.data.provider in ['password', 'google']
                     && request.resource.data.username is string
                     && request.resource.data.username.size() >= 4
                     && request.resource.data.username.size() <= 10;
 
-      // Solo el dueño puede actualizar, y no puede cambiar uid/username/
-      // email/provider/createdAt desde el cliente (esos viajan por la API).
+      // ✅ SOLO EL DUEÑO puede actualizar su propio perfil.
+      // Campos editables desde el cliente: username, fullName, avatar, online.
+      // Campos INMUTABLES que el cliente NO puede cambiar:
+      //   uid, email, provider, createdAt.
+      // La validación de unicidad de username se hace en el backend; aquí
+      // solo garantizamos que los campos inmutables no se alteren.
       allow update: if request.auth != null
                     && request.auth.uid == uid
                     && request.resource.data.uid == resource.data.uid
-                    && request.resource.data.username == resource.data.username
                     && request.resource.data.email == resource.data.email
                     && request.resource.data.provider == resource.data.provider
                     && request.resource.data.createdAt == resource.data.createdAt;
 
-      // No se permite borrar perfiles desde el cliente.
-      allow delete: if false;
+      // ✅ SOLO EL DUEÑO puede eliminar su propio perfil.
+      // En la práctica, la eliminación se hace desde el backend (Admin SDK)
+      // que bypasea estas reglas. Esta regla permite que el flujo funcione
+      // si algún día se migra a eliminación directa desde el cliente con
+      // confirmación de reautenticación.
+      allow delete: if request.auth != null && request.auth.uid == uid;
     }
 
-    // ---------- rooms/{roomId} (placeholder Sprint 1) ----------
+    // ─────────────────────────────────────────────────────────────────────
+    // rooms/{roomId} — placeholder Sprint 1
+    // Las salas y sus mensajes se crean/leen exclusivamente por el backend
+    // (Admin SDK). El cliente directo no tiene acceso de escritura.
+    // ─────────────────────────────────────────────────────────────────────
     match /rooms/{roomId} {
+      // Cualquier usuario autenticado puede leer salas (para listar, unirse, etc.)
       allow read: if request.auth != null;
       // Escritura solo vía backend (Admin SDK).
       allow write: if false;
@@ -60,7 +95,10 @@ service cloud.firestore {
       }
     }
 
-    // Por defecto, denegar todo lo no contemplado arriba.
+    // ─────────────────────────────────────────────────────────────────────
+    // Denegación por defecto — cualquier colección no contemplada arriba
+    // queda completamente bloqueada para el cliente.
+    // ─────────────────────────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }

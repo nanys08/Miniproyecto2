@@ -168,6 +168,33 @@ const options: swaggerJsdoc.Options = {
             },
           },
         },
+        UpdateProfileRequest: {
+          type: "object",
+          description:
+            "Body de `PATCH /api/auth/me`. Al menos uno de los tres campos " +
+            "debe estar presente. Los campos inmutables (uid, email, provider, " +
+            "createdAt) son ignorados aunque vengan en el body.",
+          properties: {
+            username: {
+              type: "string",
+              example: "nuevo_user",
+              description:
+                "Nuevo username. 4-10 caracteres, regex `^[a-zA-Z0-9_.]{4,10}$`. " +
+                "Se valida unicidad contra todos los usuarios excepto el propio. " +
+                "Si coincide con el username actual, la operación es idempotente.",
+            },
+            fullName: {
+              type: "string",
+              example: "Juan Pérez Actualizado",
+              description: "Nuevo nombre completo. No puede ser cadena vacía.",
+            },
+            avatar: {
+              type: "string",
+              example: "/avatars/avatar3.png",
+              description: "Nueva ruta o URL del avatar.",
+            },
+          },
+        },
         CheckResponse: {
           type: "object",
           required: ["available"],

@@ -103,10 +103,6 @@ export const register = async (
       provider,
       avatar
     );
-    // `isUnivalle` y `university` se calculan al vuelo desde el email del
-    // ID Token. No se persisten en Firestore — son derivados, y queremos
-    // que el comportamiento refleje siempre la política vigente, no la
-    // del momento del registro.
     res.status(201).json({
       user: {
         ...user,
@@ -153,6 +149,109 @@ export const getMe = async (
 };
 
 /**
+ * **PATCH /api/auth/me** — Actualiza los campos editables del perfil.
+ *
+ * Requiere `Authorization: Bearer <firebase_id_token>`.
+ * Solo se admiten los campos `username`, `fullName` y `avatar`. Los campos
+ * inmutables (uid, email, provider, createdAt) se ignoran aunque vengan en
+ * el body — nunca se escriben.
+ *
+ * Al menos uno de los tres campos debe estar presente en el body.
+ *
+ * Validaciones:
+ *   1. `MISSING_FIELDS` si ningún campo editable está presente.
+ *   2. `USERNAME_INVALID` si `username` no cumple `USERNAME_REGEX`.
+ *   3. `USERNAME_FORBIDDEN` si `username` contiene una palabra de la lista negra.
+ *   4. (En el service) `PROFILE_NOT_FOUND` si el perfil no existe.
+ *   5. (En el service) `USERNAME_ALREADY_EXISTS` si el nuevo username ya lo usa otro usuario.
+ *
+ * @param req Body parcial: `{ username?, fullName?, avatar? }`.
+ * @param res 200 con `{ user }` actualizado, o un Error apropiado.
+ */
+export const updateMe = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { uid } = req.user!;
+    const { username, fullName, avatar } = req.body ?? {};
+
+    // Verificar que al menos un campo editable fue enviado
+    const hasUsername = username !== undefined;
+    const hasFullName = fullName !== undefined;
+    const hasAvatar = avatar !== undefined;
+
+    if (!hasUsername && !hasFullName && !hasAvatar) {
+      res.status(400).json(buildError(ErrorCode.MISSING_FIELDS));
+      return;
+    }
+
+    // Validar username si se envió
+    if (hasUsername) {
+      if (typeof username !== "string" || !USERNAME_REGEX.test(username)) {
+        res.status(400).json(buildError(ErrorCode.USERNAME_INVALID));
+        return;
+      }
+      if (isProfane(username)) {
+        res.status(400).json(buildError(ErrorCode.USERNAME_FORBIDDEN));
+        return;
+      }
+    }
+
+    // Validar fullName si se envió
+    if (hasFullName && (typeof fullName !== "string" || !fullName.trim())) {
+      res.status(400).json(buildError(ErrorCode.MISSING_FIELDS));
+      return;
+    }
+
+    const updates: { username?: string; fullName?: string; avatar?: string } = {};
+    if (hasUsername) updates.username = username as string;
+    if (hasFullName) updates.fullName = (fullName as string).trim();
+    if (hasAvatar) updates.avatar = avatar as string;
+
+    const user = await authService.updateUserProfile(uid, updates);
+    res.json({
+      user: {
+        ...user,
+        isUnivalle: isUnivalleEmail(user.email),
+        university: universityLabel(user.email),
+      },
+    });
+  } catch (err) {
+    sendError(res, err, "updateMe");
+  }
+};
+
+/**
+ * **DELETE /api/auth/me** — Elimina la cuenta del usuario de forma definitiva.
+ *
+ * Requiere `Authorization: Bearer <firebase_id_token>`.
+ *
+ * Operaciones en orden:
+ *  1. Borra el documento `users/{uid}` de Firestore.
+ *  2. Borra el usuario de Firebase Authentication (invalida todos los tokens).
+ *
+ * El frontend debe llamar además a `firebase.auth().signOut()` para limpiar
+ * el estado local del SDK (el ID Token dejará de ser válido de inmediato una
+ * vez que Auth borre el usuario).
+ *
+ * @param req Requiere `req.user.uid`.
+ * @param res 204 sin body en caso de éxito.
+ */
+export const deleteMe = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { uid } = req.user!;
+    await authService.deleteUserAccount(uid);
+    res.status(204).send();
+  } catch (err) {
+    sendError(res, err, "deleteMe");
+  }
+};
+
+/**
  * **POST /api/auth/logout** — Cierra sesión server-side.
  *
  * Revoca todos los refresh tokens del usuario (cierra sesión en todas las
@@ -180,9 +279,6 @@ export const logout = async (
  * **GET /api/auth/check-email/:email** — Endpoint **público**.
  *
  * Verifica si un correo ya tiene cuenta en Firebase Authentication.
- * El frontend puede llamarlo antes de `createUserWithEmailAndPassword`
- * para mostrar un mensaje claro de "el correo ya está registrado" en
- * vez del genérico de error de conexión.
  *
  * @param req Path param `email`.
  * @param res 200 `{ available: boolean }` o 400 `EMAIL_INVALID`.
@@ -207,11 +303,7 @@ export const checkEmail = async (
 /**
  * **GET /api/auth/check-username/:username** — Endpoint **público**.
  *
- * Útil para validación en vivo durante el formulario de registro.
- *
- * Política de blacklist: los usernames con palabras prohibidas se reportan
- * como `{ available: false }`, **no** como error 400. Así el frontend pinta
- * el mismo estado de "ya en uso" sin tener que conocer códigos nuevos.
+ * Útil para validación en vivo durante el formulario de registro/edición.
  *
  * @param req Path param `username`.
  * @param res 200 `{ available: boolean }` o 400 `USERNAME_INVALID`.
@@ -240,13 +332,7 @@ export const checkUsername = async (
 /**
  * **GET /api/auth/is-univalle/:email** — Endpoint **público**.
  *
- * Identifica si un correo pertenece al dominio institucional de Univalle
- * (`@correounivalle.edu.co`). Pensado para que el frontend lo llame
- * mientras el usuario escribe el correo en el formulario de registro y
- * muestre/oculte un badge "Estudiante Univalle".
- *
- * Política actual: solo identifica, **no restringe** registro. Cualquier
- * dominio sigue pudiendo crear cuenta.
+ * Identifica si un correo pertenece al dominio institucional de Univalle.
  *
  * @param req Path param `email`.
  * @param res 200 `{ isUnivalle: boolean, domain: string }` o 400 `EMAIL_INVALID`.

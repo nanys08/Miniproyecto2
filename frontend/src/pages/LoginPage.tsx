@@ -6,7 +6,7 @@ import GoogleButton from "@/components/GoogleButton";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
-import { NeedsUsernameError } from "@/context/AuthContext";
+import { NeedsUsernameError, googleAuthErrorMessage } from "@/context/AuthContext";
 
 export default function LoginPage() {
   const { login, loginWithGoogle } = useAuth();
@@ -53,7 +53,9 @@ export default function LoginPage() {
         // Redirigimos a /register donde podrá elegir su username.
         navigate("/register", { replace: true });
       } else {
-        setError("No se pudo iniciar sesión con Google");
+        console.error("Google sign-in falló:", err);
+        const msg = googleAuthErrorMessage(err);
+        if (msg) setError(msg);
       }
     } finally {
       setGoogleLoading(false);

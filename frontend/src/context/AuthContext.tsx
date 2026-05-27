@@ -21,6 +21,31 @@ export class NeedsUsernameError extends Error {
   constructor() { super("needs-username"); }
 }
 
+/**
+ * Traduce un error de `signInWithPopup` (Firebase) a un mensaje en español.
+ * Devuelve `null` cuando el "error" es benigno (el usuario cerró el popup),
+ * para que la UI no muestre una alerta innecesaria.
+ */
+export function googleAuthErrorMessage(err: unknown): string | null {
+  const code = (err as { code?: string } | null)?.code;
+  switch (code) {
+    case "auth/popup-closed-by-user":
+    case "auth/cancelled-popup-request":
+    case "auth/user-cancelled":
+      return null; // El usuario cerró el popup: no es un error real.
+    case "auth/popup-blocked":
+      return "El navegador bloqueó la ventana emergente. Habilita los pop-ups e inténtalo de nuevo.";
+    case "auth/unauthorized-domain":
+      return "Este dominio no está autorizado para iniciar sesión con Google.";
+    case "auth/network-request-failed":
+      return "Error de red. Verifica tu conexión e inténtalo de nuevo.";
+    case "auth/operation-not-allowed":
+      return "El inicio de sesión con Google no está habilitado.";
+    default:
+      return "No fue posible iniciar sesión con Google.";
+  }
+}
+
 interface ProfileResponse {
   user: {
     username: string;

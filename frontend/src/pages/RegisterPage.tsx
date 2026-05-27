@@ -6,7 +6,7 @@ import GoogleButton from "@/components/GoogleButton";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
-import { NeedsUsernameError } from "@/context/AuthContext";
+import { NeedsUsernameError, googleAuthErrorMessage } from "@/context/AuthContext";
 import { api } from "@/services/api";
 
 const AVATARS = [
@@ -132,7 +132,9 @@ export default function RegisterPage() {
         // El useEffect detectará authUser sin username y abrirá el modal.
         setShowGoogleModal(true);
       } else {
-        setGlobalError("No fue posible iniciar sesión con Google");
+        console.error("Google sign-in falló:", err);
+        const msg = googleAuthErrorMessage(err);
+        if (msg) setGlobalError(msg);
       }
     } finally {
       setGoogleLoading(false);

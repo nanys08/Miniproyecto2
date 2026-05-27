@@ -34,6 +34,13 @@ export default function Modal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
+  // Guardamos onClose en un ref para que el efecto de foco/teclado NO dependa
+  // de su identidad. Si dependiera de onClose, cada render del padre (p. ej.
+  // al escribir en un input del modal recrea la función inline) re-ejecutaría
+  // el efecto y robaría el foco devolviéndolo al primer elemento (la X).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
 
@@ -50,7 +57,7 @@ export default function Modal({
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key === "Tab" && focusables && focusables.length > 0) {
@@ -75,7 +82,7 @@ export default function Modal({
       const target = externalReturnTarget ?? previouslyFocused.current;
       target?.focus();
     };
-  }, [open, onClose, returnFocusRef]);
+  }, [open, returnFocusRef]);
 
   if (!open) return null;
 

@@ -281,6 +281,42 @@ const options: swaggerJsdoc.Options = {
             },
           },
         },
+        Message: {
+          type: "object",
+          required: [
+            "id",
+            "roomId",
+            "senderUid",
+            "senderUsername",
+            "content",
+            "type",
+            "createdAt",
+          ],
+          description:
+            "Documento `rooms/{roomId}/messages/{messageId}` en Firestore. " +
+            "El `senderUsername` es un snapshot del momento del envío, no " +
+            "se actualiza si el autor cambia su username después.",
+          properties: {
+            id: { type: "string", example: "msg_abc123" },
+            roomId: { type: "string", example: "aB3kXq9mZvL2wRtY" },
+            senderUid: { type: "string", example: "uid-xyz" },
+            senderUsername: { type: "string", example: "juanp" },
+            content: { type: "string", example: "Hola a todos 👋" },
+            type: {
+              type: "string",
+              enum: ["text", "system"],
+              example: "text",
+              description:
+                "`text` = mensaje de usuario; `system` = evento de sala " +
+                "(joins, leaves) generado por el servidor.",
+            },
+            createdAt: {
+              type: "string",
+              format: "date-time",
+              description: "Fecha del servidor (Firestore Timestamp).",
+            },
+          },
+        },
         CheckResponse: {
           type: "object",
           required: ["available"],

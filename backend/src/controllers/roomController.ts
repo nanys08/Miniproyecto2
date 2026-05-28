@@ -14,6 +14,7 @@
 import { Response } from "express";
 import { AuthRequest } from "../middlewares/authMiddleware";
 import * as roomService from "../services/roomService";
+import * as messageService from "../services/messageService";
 import { AppError, ErrorCode, buildError } from "../utils/errors";
 import { logger } from "../utils/logger";
 
@@ -191,9 +192,67 @@ export const deleteRoom = async (
       return;
     }
 
+    // Borrar mensajes (subcolección) antes que el doc raíz. Si Firestore
+    // falla en el borrado masivo, no eliminamos la sala — así el usuario
+    // puede reintentar; los mensajes huérfanos serían inalcanzables si lo
+    // hiciéramos al revés.
+    await messageService.deleteRoomMessages(roomId);
     await roomService.deleteRoom(roomId);
     res.status(204).send();
   } catch (err) {
     sendError(res, err, "deleteRoom");
+  }
+};
+
+/**
+ * **GET /api/rooms/:roomId/messages** — Devuelve el historial de la sala.
+ *
+ * Pensado para que el frontend cargue mensajes anteriores al montar la
+ * vista de sala. El socket sigue siendo la única fuente de mensajes en
+ * vivo; este endpoint solo cubre la carga inicial / reconexión.
+ *
+ * Reglas:
+ *  - Solo el dueño o un participante pueden leer el historial.
+ *  - Respuesta ordenada cronológicamente (más antiguo → más nuevo).
+ *  - Query param opcional `limit` (1..200, default 50).
+ *
+ * @param req  Path param `roomId`, query opcional `limit`.
+ * @param res  200 `{ messages }`, 403 si no es miembro, 404 si no existe.
+ */
+export const getRoomHistory = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { uid } = req.user!;
+    const { roomId } = req.params as { roomId: string };
+
+    const room = await roomService.getRoomById(roomId);
+    if (!room) {
+      res.status(404).json(buildError(ErrorCode.ROOM_NOT_FOUND));
+      return;
+    }
+
+    const isOwner = room.ownerId === uid;
+    const isParticipant = Array.isArray(room.participants) && room.participants.includes(uid);
+    if (!isOwner && !isParticipant) {
+      res.status(403).json(
+        buildError(ErrorCode.INTERNAL_ERROR, "No eres miembro de esta sala")
+      );
+      return;
+    }
+
+    // Parse + clamp del query param `limit` (req.query puede no existir en
+    // tests o si Express no lo pobló — defensa explícita).
+    const limitParam = (req.query?.["limit"] ?? undefined) as
+      | string
+      | undefined;
+    const rawLimit = limitParam !== undefined ? Number(limitParam) : NaN;
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : undefined;
+
+    const messages = await messageService.getRoomMessages(roomId, limit);
+    res.json({ messages });
+  } catch (err) {
+    sendError(res, err, "getRoomHistory");
   }
 };

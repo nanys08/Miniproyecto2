@@ -8,9 +8,15 @@ let socket: Socket | null = null;
 
 /**
  * Conecta al backend Socket.IO autenticando con el Firebase ID Token actual.
- * Eventos disponibles (ver `backend/docs/sockets.md`):
- *  - TS-02: join-room, send-message, receive-message, user-joined, user-left
- *  - TS-03: webrtc-offer, webrtc-answer, ice-candidate
+ *
+ * Eventos del contrato actual:
+ *  - Chat / sala (snake_case): join_room, leave_room, send_message,
+ *    receive_message, user_joined, user_left
+ *  - WebRTC (kebab-case, heredado TS-03): webrtc-offer, webrtc-answer, ice-candidate
+ *
+ * Reconexión: socket.io-client la maneja sola. Permitimos polling como
+ * fallback porque algunos proxies (Render free tier) tardan en negociar
+ * websocket en frío y dejarían el socket "Connecting" indefinido.
  */
 export async function connectSocket(): Promise<Socket> {
   if (socket?.connected) return socket;
@@ -26,8 +32,12 @@ export async function connectSocket(): Promise<Socket> {
 
   socket = io(SOCKET_URL, {
     auth: { token },
-    transports: ["websocket"],
+    transports: ["websocket", "polling"],
     autoConnect: true,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
   });
 
   return socket;

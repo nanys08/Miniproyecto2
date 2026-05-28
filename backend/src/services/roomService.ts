@@ -8,6 +8,7 @@
  * Estructura: ver `docs/firestore-model.md`.
  */
 
+import * as admin from "firebase-admin";
 import { db } from "../config/firebase";
 import { Room, ROOMS_COLLECTION } from "../models/Room";
 import { AppError, ErrorCode } from "../utils/errors";
@@ -122,6 +123,53 @@ export const getRoomsByUser = async (uid: string): Promise<Room[]> => {
 export const getRoomById = async (roomId: string): Promise<Room | null> => {
   const doc = await db.collection(ROOMS_COLLECTION).doc(roomId).get();
   return doc.exists ? (doc.data() as Room) : null;
+};
+
+/**
+ * Añade un UID al array `participants` de la sala (idempotente).
+ *
+ * Usa `FieldValue.arrayUnion` para que múltiples joins concurrentes no
+ * generen duplicados ni se pisen entre sí. Si la sala no existe, lanza
+ * `ROOM_NOT_FOUND` y no escribe.
+ *
+ * @param roomId  ID de la sala.
+ * @param uid     UID del usuario que se une.
+ * @throws {AppError} `ROOM_NOT_FOUND` (404) si la sala no existe.
+ */
+export const addParticipant = async (
+  roomId: string,
+  uid: string
+): Promise<void> => {
+  const docRef = db.collection(ROOMS_COLLECTION).doc(roomId);
+  const doc = await docRef.get();
+  if (!doc.exists) {
+    throw new AppError(ErrorCode.ROOM_NOT_FOUND, 404);
+  }
+  await docRef.update({
+    participants: admin.firestore.FieldValue.arrayUnion(uid),
+  });
+};
+
+/**
+ * Quita un UID del array `participants` de la sala (idempotente).
+ *
+ * No se llama en `disconnect` de socket (un usuario puede abrir varias
+ * pestañas y no queremos sacarlo si solo cerró una). Se reserva para
+ * acciones explícitas como "abandonar sala".
+ *
+ * @param roomId  ID de la sala.
+ * @param uid     UID del usuario que sale.
+ */
+export const removeParticipant = async (
+  roomId: string,
+  uid: string
+): Promise<void> => {
+  const docRef = db.collection(ROOMS_COLLECTION).doc(roomId);
+  const doc = await docRef.get();
+  if (!doc.exists) return; // sala ya borrada → nada que hacer
+  await docRef.update({
+    participants: admin.firestore.FieldValue.arrayRemove(uid),
+  });
 };
 
 /**

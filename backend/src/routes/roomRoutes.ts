@@ -227,4 +227,62 @@ router.get("/:roomId", verifyToken, roomController.getRoomById);
  */
 router.delete("/:roomId", verifyToken, roomController.deleteRoom);
 
+/**
+ * @openapi
+ * /api/rooms/{roomId}/messages:
+ *   get:
+ *     tags: [Rooms]
+ *     summary: Historial de mensajes de una sala
+ *     description: |
+ *       Devuelve los últimos mensajes persistidos en `rooms/{roomId}/messages/`,
+ *       ordenados de más antiguo a más nuevo (listo para pintar de arriba a
+ *       abajo en el chat).
+ *
+ *       Reglas:
+ *       - Solo el dueño o un participante actual de la sala pueden leerla.
+ *       - Tamaño máximo del payload: 200 mensajes por petición.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID único de la sala.
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+ *         description: Número máximo de mensajes a devolver (clamp 1..200).
+ *     responses:
+ *       200:
+ *         description: Historial de mensajes (vacío si no hay).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 messages:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Message'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: El usuario no es miembro de la sala.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Sala no encontrada.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
+ */
+router.get("/:roomId/messages", verifyToken, roomController.getRoomHistory);
+
 export default router;

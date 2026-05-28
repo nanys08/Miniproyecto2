@@ -12,6 +12,12 @@ const getRoomsByUserMock = jest.fn();
 const getRoomByIdMock = jest.fn();
 const deleteRoomMock = jest.fn();
 const getRoomByAccessCodeMock = jest.fn();
+const addParticipantMock = jest.fn();
+const removeParticipantMock = jest.fn();
+
+const saveMessageMock = jest.fn();
+const getRoomMessagesMock = jest.fn();
+const deleteRoomMessagesMock = jest.fn();
 
 jest.mock("../src/services/roomService", () => ({
   createRoom: (...args: unknown[]) => createRoomMock(...args),
@@ -19,6 +25,17 @@ jest.mock("../src/services/roomService", () => ({
   getRoomById: (...args: unknown[]) => getRoomByIdMock(...args),
   deleteRoom: (...args: unknown[]) => deleteRoomMock(...args),
   getRoomByAccessCode: (...args: unknown[]) => getRoomByAccessCodeMock(...args),
+  addParticipant: (...args: unknown[]) => addParticipantMock(...args),
+  removeParticipant: (...args: unknown[]) => removeParticipantMock(...args),
+}));
+
+jest.mock("../src/services/messageService", () => ({
+  saveMessage: (...args: unknown[]) => saveMessageMock(...args),
+  getRoomMessages: (...args: unknown[]) => getRoomMessagesMock(...args),
+  deleteRoomMessages: (...args: unknown[]) => deleteRoomMessagesMock(...args),
+  DEFAULT_HISTORY_LIMIT: 50,
+  MAX_HISTORY_LIMIT: 200,
+  MAX_MESSAGE_LENGTH: 2000,
 }));
 
 jest.mock("../src/utils/logger", () => ({
@@ -74,6 +91,14 @@ beforeEach(() => {
   getRoomByIdMock.mockReset();
   deleteRoomMock.mockReset();
   getRoomByAccessCodeMock.mockReset();
+  addParticipantMock.mockReset();
+  removeParticipantMock.mockReset();
+  saveMessageMock.mockReset();
+  getRoomMessagesMock.mockReset();
+  deleteRoomMessagesMock.mockReset();
+  // Por defecto, el borrado de mensajes resuelve OK — los tests específicos
+  // que necesiten simular fallo lo sobrescriben con mockRejectedValueOnce.
+  deleteRoomMessagesMock.mockResolvedValue(undefined);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -305,5 +330,101 @@ describe("joinRoomByCode", () => {
     expect(res.statusCode).toBe(500);
     expect((res.body as { error: string }).error).toBe("INTERNAL_ERROR");
     expect(JSON.stringify(res.body)).not.toContain("Firestore down");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/rooms/:roomId/messages — getRoomHistory
+// ─────────────────────────────────────────────────────────────────────────────
+describe("getRoomHistory", () => {
+  const fakeMessages = [
+    { id: "m1", roomId: "room-abc123", senderUid: "owner-uid", senderUsername: "owner", content: "hola", type: "text", createdAt: new Date() },
+  ];
+
+  it("200 con el historial cuando el solicitante es el dueño", async () => {
+    getRoomByIdMock.mockResolvedValue(fakeRoom);
+    getRoomMessagesMock.mockResolvedValue(fakeMessages);
+    const req = baseReq({ params: { roomId: "room-abc123" } });
+    const res = buildRes();
+    await roomController.getRoomHistory(req, res);
+    expect(res.statusCode).toBeUndefined();
+    expect(res.body).toEqual({ messages: fakeMessages });
+    expect(getRoomMessagesMock).toHaveBeenCalledWith("room-abc123", undefined);
+  });
+
+  it("200 cuando el solicitante es participante (no dueño)", async () => {
+    getRoomByIdMock.mockResolvedValue({
+      ...fakeRoom,
+      ownerId: "otro-uid",
+      participants: ["otro-uid", "miembro-uid"],
+    });
+    getRoomMessagesMock.mockResolvedValue([]);
+    const req = baseReq({
+      user: { uid: "miembro-uid" },
+      params: { roomId: "room-abc123" },
+    });
+    const res = buildRes();
+    await roomController.getRoomHistory(req, res);
+    expect(res.body).toEqual({ messages: [] });
+  });
+
+  it("403 cuando el solicitante no es miembro de la sala", async () => {
+    getRoomByIdMock.mockResolvedValue({
+      ...fakeRoom,
+      ownerId: "otro-uid",
+      participants: ["otro-uid"],
+    });
+    const req = baseReq({
+      user: { uid: "intruso-uid" },
+      params: { roomId: "room-abc123" },
+    });
+    const res = buildRes();
+    await roomController.getRoomHistory(req, res);
+    expect(res.statusCode).toBe(403);
+    expect(getRoomMessagesMock).not.toHaveBeenCalled();
+  });
+
+  it("404 ROOM_NOT_FOUND cuando la sala no existe", async () => {
+    getRoomByIdMock.mockResolvedValue(null);
+    const req = baseReq({ params: { roomId: "no-existe" } });
+    const res = buildRes();
+    await roomController.getRoomHistory(req, res);
+    expect(res.statusCode).toBe(404);
+    expect((res.body as { error: string }).error).toBe("ROOM_NOT_FOUND");
+  });
+
+  it("aplica el query param `limit` cuando es válido", async () => {
+    getRoomByIdMock.mockResolvedValue(fakeRoom);
+    getRoomMessagesMock.mockResolvedValue([]);
+    const req = baseReq({
+      params: { roomId: "room-abc123" },
+      query: { limit: "10" } as Record<string, string>,
+    });
+    const res = buildRes();
+    await roomController.getRoomHistory(req, res);
+    expect(getRoomMessagesMock).toHaveBeenCalledWith("room-abc123", 10);
+  });
+
+  it("ignora `limit` inválido y deja que el service use el default", async () => {
+    getRoomByIdMock.mockResolvedValue(fakeRoom);
+    getRoomMessagesMock.mockResolvedValue([]);
+    const req = baseReq({
+      params: { roomId: "room-abc123" },
+      query: { limit: "abc" } as Record<string, string>,
+    });
+    const res = buildRes();
+    await roomController.getRoomHistory(req, res);
+    expect(getRoomMessagesMock).toHaveBeenCalledWith("room-abc123", undefined);
+  });
+
+  it("500 INTERNAL_ERROR oculta detalles internos del service de mensajes", async () => {
+    getRoomByIdMock.mockResolvedValue(fakeRoom);
+    getRoomMessagesMock.mockRejectedValue(new Error("Firestore index missing"));
+    const req = baseReq({ params: { roomId: "room-abc123" } });
+    const res = buildRes();
+    await roomController.getRoomHistory(req, res);
+    expect(res.statusCode).toBe(500);
+    expect((res.body as { error: string }).error).toBe("INTERNAL_ERROR");
+    expect(JSON.stringify(res.body)).not.toContain("index missing");
   });
 });

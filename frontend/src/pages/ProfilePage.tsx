@@ -52,6 +52,8 @@ const ERROR_FIELD_MAP: Record<string, { field: keyof FieldErrors; message: strin
   USERNAME_ALREADY_EXISTS: { field: "username", message: "El username ya está en uso" },
   USERNAME_INVALID:        { field: "username", message: "Entre 4 y 10 caracteres: letras, números, punto y guion bajo" },
   USERNAME_FORBIDDEN:      { field: "username", message: "Ese username no está permitido" },
+  FULLNAME_INVALID:        { field: "fullName", message: "El nombre completo debe tener al menos 3 caracteres" },
+  PHONE_INVALID:           { field: "phone",    message: "El teléfono debe tener entre 7 y 15 dígitos" },
   MISSING_FIELDS:          { field: "fullName", message: "El nombre completo no puede estar vacío" },
 };
 

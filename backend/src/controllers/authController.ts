@@ -33,6 +33,19 @@ const USERNAME_REGEX = /^[a-zA-Z0-9_.]{4,10}$/;
 /** Regex laxa de email para validar el path-param de `check-email`. */
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Mínimo de caracteres del `fullName` (tras `trim`). Debe coincidir con el frontend. */
+const FULLNAME_MIN_LENGTH = 3;
+
+/**
+ * Valida un teléfono opcional. Cadena vacía/whitespace = válido (borrar valor).
+ * En otro caso debe tener entre 7 y 15 dígitos (E.164 sin contar prefijo `+`).
+ */
+const isValidPhone = (value: string): boolean => {
+  if (!value.trim()) return true;
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= 7 && digits.length <= 15;
+};
+
 /** Únicos proveedores aceptados en `register`. */
 const VALID_PROVIDERS: AuthProvider[] = ["password", "google"];
 
@@ -90,6 +103,13 @@ export const register = async (
       res.status(400).json(buildError(ErrorCode.USERNAME_FORBIDDEN));
       return;
     }
+    if (
+      typeof fullName !== "string" ||
+      fullName.trim().length < FULLNAME_MIN_LENGTH
+    ) {
+      res.status(400).json(buildError(ErrorCode.FULLNAME_INVALID));
+      return;
+    }
     if (!VALID_PROVIDERS.includes(provider)) {
       res.status(400).json(buildError(ErrorCode.PROVIDER_INVALID));
       return;
@@ -98,7 +118,7 @@ export const register = async (
     const user = await authService.registerUserProfile(
       uid,
       username,
-      fullName,
+      fullName.trim(),
       email || "",
       provider,
       avatar
@@ -199,10 +219,26 @@ export const updateMe = async (
       }
     }
 
-    // Validar fullName si se envió
-    if (hasFullName && (typeof fullName !== "string" || !fullName.trim())) {
-      res.status(400).json(buildError(ErrorCode.MISSING_FIELDS));
+    // Validar fullName si se envió (mínimo 3 caracteres tras trim)
+    if (
+      hasFullName &&
+      (typeof fullName !== "string" ||
+        fullName.trim().length < FULLNAME_MIN_LENGTH)
+    ) {
+      res.status(400).json(buildError(ErrorCode.FULLNAME_INVALID));
       return;
+    }
+
+    // Validar phone si se envió (opcional, pero si trae valor debe ser 7-15 dígitos)
+    if (hasPhone) {
+      if (typeof phone !== "string") {
+        res.status(400).json(buildError(ErrorCode.PHONE_INVALID));
+        return;
+      }
+      if (!isValidPhone(phone)) {
+        res.status(400).json(buildError(ErrorCode.PHONE_INVALID));
+        return;
+      }
     }
 
     const updates: { username?: string; fullName?: string; avatar?: string; phone?: string } = {};
@@ -210,7 +246,7 @@ export const updateMe = async (
     if (hasFullName) updates.fullName = (fullName as string).trim();
     if (hasAvatar) updates.avatar = avatar as string;
     // phone puede ser "" para borrar o cualquier string para actualizar
-    if (hasPhone) updates.phone = typeof phone === "string" ? phone.trim() : "";
+    if (hasPhone) updates.phone = (phone as string).trim();
 
     const user = await authService.updateUserProfile(uid, updates);
     res.json({

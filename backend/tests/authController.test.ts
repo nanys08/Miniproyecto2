@@ -141,6 +141,29 @@ describe("register — validaciones de entrada", () => {
     expect(res.body).toMatchObject({ error: ErrorCode.USERNAME_FORBIDDEN });
   });
 
+  it("400 FULLNAME_INVALID si fullName tiene menos de 3 caracteres", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({ body: { username: "anita", fullName: "Jo", provider: "password" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.FULLNAME_INVALID });
+    expect(registerUserProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("400 FULLNAME_INVALID si fullName es solo espacios", async () => {
+    const res = buildRes();
+    await authController.register(
+      baseReq({ body: { username: "anita", fullName: "   ", provider: "password" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    // fullName con solo espacios cae primero en MISSING_FIELDS porque "   " es falsy tras
+    // ser tratado como string vacío en el chequeo inicial? No: la cadena no vacía es truthy.
+    expect(res.body).toMatchObject({ error: ErrorCode.FULLNAME_INVALID });
+  });
+
   it("400 PROVIDER_INVALID si provider no es 'password' ni 'google'", async () => {
     const res = buildRes();
     await authController.register(
@@ -320,11 +343,58 @@ describe("updateMe — validaciones de entrada", () => {
     expect(updateUserProfileMock).not.toHaveBeenCalled();
   });
 
-  it("400 MISSING_FIELDS si fullName es una cadena vacía", async () => {
+  it("400 FULLNAME_INVALID si fullName es solo espacios", async () => {
     const res = buildRes();
     await authController.updateMe(baseReq({ body: { fullName: "   " } }), res);
     expect(res.statusCode).toBe(400);
-    expect(res.body).toMatchObject({ error: ErrorCode.MISSING_FIELDS });
+    expect(res.body).toMatchObject({ error: ErrorCode.FULLNAME_INVALID });
+  });
+
+  it("400 FULLNAME_INVALID si fullName tiene menos de 3 caracteres", async () => {
+    const res = buildRes();
+    await authController.updateMe(baseReq({ body: { fullName: "Jo" } }), res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.FULLNAME_INVALID });
+    expect(updateUserProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("400 PHONE_INVALID si phone tiene menos de 7 dígitos", async () => {
+    const res = buildRes();
+    await authController.updateMe(baseReq({ body: { phone: "123" } }), res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.PHONE_INVALID });
+    expect(updateUserProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("400 PHONE_INVALID si phone tiene más de 15 dígitos", async () => {
+    const res = buildRes();
+    await authController.updateMe(baseReq({ body: { phone: "1234567890123456" } }), res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ error: ErrorCode.PHONE_INVALID });
+  });
+
+  it("acepta phone con caracteres no numéricos (cuenta solo dígitos)", async () => {
+    updateUserProfileMock.mockResolvedValueOnce({
+      uid: "uid-1", username: "x", fullName: "Ana", email: "u@u.com",
+      avatar: "default_avatar.png", provider: "password", online: false,
+      createdAt: new Date(), phone: "+57 300 123 4567",
+    });
+    const res = buildRes();
+    await authController.updateMe(baseReq({ body: { phone: "+57 300 123 4567" } }), res);
+    expect(res.statusCode).toBeUndefined();
+    expect(updateUserProfileMock).toHaveBeenCalledWith("uid-1", { phone: "+57 300 123 4567" });
+  });
+
+  it("acepta phone vacío (borra el valor)", async () => {
+    updateUserProfileMock.mockResolvedValueOnce({
+      uid: "uid-1", username: "x", fullName: "Ana", email: "u@u.com",
+      avatar: "default_avatar.png", provider: "password", online: false,
+      createdAt: new Date(), phone: "",
+    });
+    const res = buildRes();
+    await authController.updateMe(baseReq({ body: { phone: "" } }), res);
+    expect(res.statusCode).toBeUndefined();
+    expect(updateUserProfileMock).toHaveBeenCalledWith("uid-1", { phone: "" });
   });
 });
 

@@ -165,7 +165,13 @@ const options: swaggerJsdoc.Options = {
                 "(regex `^[a-zA-Z0-9_.]{4,10}$`). Se rechaza si contiene " +
                 "palabras de la lista negra (ver `USERNAME_FORBIDDEN`).",
             },
-            fullName: { type: "string", example: "Juan Pérez" },
+            fullName: {
+              type: "string",
+              example: "Juan Pérez",
+              description:
+                "Nombre completo. Mínimo 3 caracteres (tras `trim`). " +
+                "Se rechaza con `FULLNAME_INVALID` si es más corto.",
+            },
             provider: { $ref: "#/components/schemas/AuthProvider" },
             avatar: {
               type: "string",
@@ -192,7 +198,9 @@ const options: swaggerJsdoc.Options = {
             fullName: {
               type: "string",
               example: "Juan Pérez Actualizado",
-              description: "Nuevo nombre completo. No puede ser cadena vacía.",
+              description:
+                "Nuevo nombre completo. Mínimo 3 caracteres (tras `trim`). " +
+                "Se rechaza con `FULLNAME_INVALID` si es más corto.",
             },
             avatar: {
               type: "string",
@@ -204,7 +212,9 @@ const options: swaggerJsdoc.Options = {
               example: "+57 300 123 4567",
               description:
                 "Teléfono opcional. Cadena vacía borra el valor. " +
-                "No se valida formato en el backend.",
+                "Si trae valor, debe tener entre 7 y 15 dígitos (los " +
+                "caracteres no numéricos como `+`, espacios o guiones no cuentan). " +
+                "Se rechaza con `PHONE_INVALID` si está fuera de rango.",
             },
           },
         },
@@ -301,6 +311,8 @@ const options: swaggerJsdoc.Options = {
                 "USERNAME_FORBIDDEN",
                 "PROVIDER_INVALID",
                 "EMAIL_INVALID",
+                "FULLNAME_INVALID",
+                "PHONE_INVALID",
                 "USERNAME_ALREADY_EXISTS",
                 "EMAIL_ALREADY_EXISTS",
                 "PROFILE_ALREADY_EXISTS",

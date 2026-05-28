@@ -7,7 +7,7 @@ import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { NeedsUsernameError, googleAuthErrorMessage } from "@/context/AuthContext";
-import { api } from "@/services/api";
+import { api, ApiError } from "@/services/api";
 
 const AVATARS = [
   "/avatars/avatar1.png",
@@ -115,8 +115,28 @@ export default function RegisterPage() {
       await register(email, password, username, fullName, AVATARS[avatar!]);
       show("success", "¡Cuenta creada exitosamente!");
       navigate("/dashboard", { replace: true });
-    } catch {
-      setGlobalError("Ocurrió un error de conexión, inténtalo nuevamente");
+    } catch (err) {
+      // Mapear códigos del backend a errores de campo (defensa en profundidad)
+      if (err instanceof ApiError) {
+        switch (err.message) {
+          case "FULLNAME_INVALID":
+            setFullNameError("El nombre debe tener al menos 3 caracteres");
+            break;
+          case "USERNAME_INVALID":
+            setUsernameError("Entre 4 y 10 caracteres: letras, números, punto y guion bajo");
+            break;
+          case "USERNAME_ALREADY_EXISTS":
+            setUsernameError("Username ya existe");
+            break;
+          case "USERNAME_FORBIDDEN":
+            setUsernameError("Ese username no está permitido");
+            break;
+          default:
+            setGlobalError("Ocurrió un error de conexión, inténtalo nuevamente");
+        }
+      } else {
+        setGlobalError("Ocurrió un error de conexión, inténtalo nuevamente");
+      }
     } finally {
       setLoading(false);
       isManualRegisteringRef.current = false;

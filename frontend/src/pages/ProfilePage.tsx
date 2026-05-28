@@ -61,7 +61,14 @@ const ERROR_FIELD_MAP: Record<string, { field: keyof FieldErrors; message: strin
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
 type SaveStatus = "idle" | "loading" | "success" | "error";
-type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid" | "same";
+type UsernameStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "taken"
+  | "invalid"
+  | "same"
+  | "check_failed";
 
 interface FieldErrors {
   fullName?: string;
@@ -145,7 +152,9 @@ export default function ProfilePage() {
         const res = await api.get<{ available: boolean }>(`/auth/check-username/${username}`);
         setUsernameStatus(res.available ? "available" : "taken");
       } catch {
-        setUsernameStatus("idle");
+        // Backend caído / Firestore indisponible. Mostramos un mensaje
+        // visible en vez de quedarnos en "idle" silencioso.
+        setUsernameStatus("check_failed");
       }
     }, 500);
     return () => {
@@ -493,6 +502,11 @@ export default function ProfilePage() {
                     )}
                     {usernameStatus === "invalid" && username.length > 0 && (
                       <p className="text-xs text-red-600">4-10 caracteres: letras, números, . y _</p>
+                    )}
+                    {usernameStatus === "check_failed" && (
+                      <p className="text-xs font-medium text-orange-600">
+                        ⚠ No pudimos verificar disponibilidad. Inténtalo de nuevo en un momento.
+                      </p>
                     )}
                   </div>
                 )}

@@ -22,7 +22,13 @@ const AVATARS = [
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_.]{4,10}$/;
 
-type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
+type UsernameStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "taken"
+  | "invalid"
+  | "check_failed";
 
 export default function RegisterPage() {
   const { register, loginWithGoogle, user: authUser, refreshProfile } = useAuth();
@@ -77,7 +83,13 @@ export default function RegisterPage() {
       try {
         const res = await api.get<{ available: boolean }>(`/auth/check-username/${username}`);
         setUsernameStatus(res.available ? "available" : "taken");
-      } catch { setUsernameStatus("idle"); }
+      } catch {
+        // El backend devolvió error (lo más típico: 500/503 por Firestore
+        // caído o credenciales mal configuradas). Mostramos un estado
+        // visible en vez de tragarnos el error — sin esto, el usuario se
+        // queda esperando un ✅ que nunca llega.
+        setUsernameStatus("check_failed");
+      }
     }, 500);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [username]);
@@ -108,7 +120,11 @@ export default function RegisterPage() {
     e.preventDefault();
     setGlobalError("");
     if (!validateAll()) return;
-    if (usernameStatus === "checking") return;
+    if (usernameStatus === "checking") {
+      // No silenciamos el clic — el usuario debe saber por qué nada pasa.
+      setUsernameError("Espera un momento, estamos verificando el username…");
+      return;
+    }
     setLoading(true);
     isManualRegisteringRef.current = true;
     try {
@@ -169,7 +185,18 @@ export default function RegisterPage() {
     e.preventDefault();
     if (googleAvatar === null) { setGoogleAvatarError("Elige un avatar"); return; }
     if (!USERNAME_REGEX.test(googleUsername)) { setGoogleUsernameError("Username inválido"); return; }
-    if (googleUsernameStatus !== "available") { setGoogleUsernameError("Elige un username disponible"); return; }
+    // Solo bloqueamos cuando SABEMOS que el username está tomado, o cuando
+    // la verificación está todavía en curso (esperamos). Si la verificación
+    // falló (red, backend frío, etc.) dejamos enviar — el backend tiene la
+    // verdad definitiva y, si está tomado, responderá USERNAME_ALREADY_EXISTS.
+    if (googleUsernameStatus === "checking") {
+      setGoogleUsernameError("Espera un momento, estamos verificando…");
+      return;
+    }
+    if (googleUsernameStatus === "taken") {
+      setGoogleUsernameError("Ese username ya está en uso, elige otro");
+      return;
+    }
     setGoogleLoading(true);
     try {
       await api.post("/auth/register", {
@@ -183,8 +210,26 @@ export default function RegisterPage() {
       show("success", "¡Cuenta creada exitosamente!");
       setShowGoogleModal(false);
       navigate("/dashboard", { replace: true });
-    } catch {
-      setGoogleUsernameError("Error al guardar el username, intenta de nuevo");
+    } catch (err) {
+      // El servidor es la verdad: si el username estaba realmente tomado o
+      // el regex falló en el server, lo decimos al usuario en términos claros.
+      if (err instanceof ApiError) {
+        switch (err.message) {
+          case "USERNAME_ALREADY_EXISTS":
+            setGoogleUsernameError("Ese username ya está en uso, elige otro");
+            break;
+          case "USERNAME_INVALID":
+            setGoogleUsernameError("Username inválido (4-10 caracteres: letras, números, . y _)");
+            break;
+          case "USERNAME_FORBIDDEN":
+            setGoogleUsernameError("Ese username no está permitido");
+            break;
+          default:
+            setGoogleUsernameError("Error al guardar el username, intenta de nuevo");
+        }
+      } else {
+        setGoogleUsernameError("Error al guardar el username, intenta de nuevo");
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -311,6 +356,11 @@ export default function RegisterPage() {
                 {!usernameError && usernameStatus === "checking" && (
                   <p className="text-xs text-slate-400" role="status" aria-live="polite">Verificando...</p>
                 )}
+                {!usernameError && usernameStatus === "check_failed" && (
+                  <p className="text-xs text-orange-600 font-medium" role="status" aria-live="polite">
+                    ⚠ No pudimos verificar la disponibilidad. Inténtalo de nuevo en un momento.
+                  </p>
+                )}
               </div>
               <Input
                 label="Contraseña"
@@ -425,7 +475,9 @@ export default function RegisterPage() {
                         try {
                           const res = await api.get<{ available: boolean }>(`/auth/check-username/${val}`);
                           setGoogleUsernameStatus(res.available ? "available" : "taken");
-                        } catch { setGoogleUsernameStatus("idle"); }
+                        } catch {
+                          setGoogleUsernameStatus("check_failed");
+                        }
                       }, 500);
                     } else {
                       setGoogleUsernameStatus(val.length === 0 ? "idle" : "invalid");
@@ -441,6 +493,11 @@ export default function RegisterPage() {
                 )}
                 {!googleUsernameError && googleUsernameStatus === "checking" && (
                   <p className="mt-1 text-xs text-slate-400" role="status" aria-live="polite">Verificando...</p>
+                )}
+                {!googleUsernameError && googleUsernameStatus === "check_failed" && (
+                  <p className="mt-1 text-xs text-orange-600" role="status" aria-live="polite">
+                    ⚠ No pudimos verificar disponibilidad. Inténtalo de nuevo.
+                  </p>
                 )}
               </div>
               <Button type="submit" isLoading={googleLoading} className="w-full !rounded-xl">

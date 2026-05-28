@@ -71,7 +71,7 @@ export const DEFAULT_MESSAGES: Record<ErrorCodeValue, string> = {
   PROVIDER_INVALID: "provider debe ser 'password' o 'google'",
   EMAIL_INVALID: "Correo electrónico inválido",
   FULLNAME_INVALID: "El nombre completo debe tener al menos 3 caracteres",
-  PHONE_INVALID: "El teléfono debe tener entre 7 y 15 dígitos",
+  PHONE_INVALID: "El teléfono debe tener exactamente 10 dígitos",
   USERNAME_ALREADY_EXISTS: "El nombre de usuario ya está en uso",
   EMAIL_ALREADY_EXISTS: "El correo electrónico ya está registrado",
   PROFILE_ALREADY_EXISTS: "El perfil ya existe para este usuario",

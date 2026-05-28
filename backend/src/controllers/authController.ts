@@ -36,14 +36,21 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Mínimo de caracteres del `fullName` (tras `trim`). Debe coincidir con el frontend. */
 const FULLNAME_MIN_LENGTH = 3;
 
+/** Cantidad EXACTA de dígitos requerida para el teléfono (Colombia). */
+const PHONE_DIGITS = 10;
+
 /**
- * Valida un teléfono opcional. Cadena vacía/whitespace = válido (borrar valor).
- * En otro caso debe tener entre 7 y 15 dígitos (E.164 sin contar prefijo `+`).
+ * Valida un teléfono opcional. Cadena vacía/whitespace = válido (borrar
+ * valor). En otro caso debe tener exactamente `PHONE_DIGITS` dígitos,
+ * coincidiendo con el formato del frontend ("300 000 0000").
+ *
+ * Si en el futuro se soportan más países, parametrizar por código de
+ * país y aceptar rangos por `country` en vez de un solo número.
  */
 const isValidPhone = (value: string): boolean => {
   if (!value.trim()) return true;
   const digits = value.replace(/\D/g, "");
-  return digits.length >= 7 && digits.length <= 15;
+  return digits.length === PHONE_DIGITS;
 };
 
 /** Únicos proveedores aceptados en `register`. */

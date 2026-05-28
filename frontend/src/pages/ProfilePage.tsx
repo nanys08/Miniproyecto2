@@ -29,6 +29,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { api, ApiError } from "@/services/api";
 import { friendlyError } from "@/services/apiErrors";
+import {
+  USERNAME_REGEX,
+  usernameInvalidReason,
+  PHONE_DIGITS,
+  formatPhoneDisplay,
+  phoneInvalidReason,
+} from "@/utils/validation";
 import Input from "@/components/Input";
 import Button from "@/components/Button";
 import Avatar from "@/components/Avatar";
@@ -46,15 +53,13 @@ const AVATARS = [
   "/avatars/avatar8.png",
 ] as const;
 
-const USERNAME_REGEX = /^[a-zA-Z0-9_.]{4,10}$/;
-
 // Mapeo de códigos de error del backend a campo de formulario
 const ERROR_FIELD_MAP: Record<string, { field: keyof FieldErrors; message: string }> = {
   USERNAME_ALREADY_EXISTS: { field: "username", message: "El username ya está en uso" },
   USERNAME_INVALID:        { field: "username", message: "Entre 4 y 10 caracteres: letras, números, punto y guion bajo" },
   USERNAME_FORBIDDEN:      { field: "username", message: "Ese username no está permitido" },
   FULLNAME_INVALID:        { field: "fullName", message: "El nombre completo debe tener al menos 3 caracteres" },
-  PHONE_INVALID:           { field: "phone",    message: "El teléfono debe tener entre 7 y 15 dígitos" },
+  PHONE_INVALID:           { field: "phone",    message: `El teléfono debe tener exactamente ${PHONE_DIGITS} dígitos` },
   MISSING_FIELDS:          { field: "fullName", message: "El nombre completo no puede estar vacío" },
 };
 
@@ -116,7 +121,10 @@ export default function ProfilePage() {
     if (!user) return;
     setFullName(user.displayName ?? "");
     setUsername(user.username ?? "");
-    setPhone(user.phone ?? "");
+    // Mostramos siempre el teléfono formateado "300 000 0000" aunque en
+    // Firestore se guarde con o sin espacios. `formatPhoneDisplay` trunca
+    // a 10 dígitos por seguridad.
+    setPhone(formatPhoneDisplay(user.phone ?? ""));
     setOriginalUsername(user.username ?? "");
     const idx = AVATARS.indexOf(user.avatar as typeof AVATARS[number]);
     setSelectedAvatar(idx >= 0 ? idx : null);
@@ -188,14 +196,13 @@ export default function ProfilePage() {
     if (!fullName.trim() || fullName.trim().length < 3) {
       errors.fullName = "El nombre completo debe tener al menos 3 caracteres";
     }
-    if (phone.trim()) {
-      const digits = phone.replace(/\D/g, "");
-      if (digits.length < 7 || digits.length > 15) {
-        errors.phone = "El teléfono debe tener entre 7 y 15 dígitos";
-      }
+    const phoneReason = phoneInvalidReason(phone);
+    if (phoneReason) {
+      errors.phone = phoneReason;
     }
-    if (!USERNAME_REGEX.test(username)) {
-      errors.username = "Entre 4 y 10 caracteres: letras, números, punto y guion bajo";
+    const usernameReason = usernameInvalidReason(username);
+    if (usernameReason) {
+      errors.username = usernameReason;
     } else if (usernameStatus === "taken") {
       errors.username = "El username ya está en uso";
     } else if (usernameStatus === "checking") {
@@ -226,7 +233,9 @@ export default function ProfilePage() {
       const payload: Record<string, string> = {
         fullName: fullName.trim(),
         username,
-        phone: phone.trim(),
+        // Persistimos solo dígitos en Firestore para que sea fácil
+        // comparar/buscar. El front re-formatea al renderizar.
+        phone: phone.replace(/\D/g, ""),
       };
       if (selectedAvatar !== null) {
         payload.avatar = AVATARS[selectedAvatar];
@@ -435,15 +444,37 @@ export default function ProfilePage() {
               <div className="flex flex-col gap-1">
                 <Input
                   label="Teléfono"
-                  placeholder="+57 300 123 4567"
+                  placeholder="300 000 0000"
                   type="tel"
                   autoComplete="tel"
+                  // `inputMode=numeric` + `pattern` ayuda a que móvil
+                  // muestre el teclado numérico y que el navegador valide.
+                  inputMode="numeric"
+                  pattern="[0-9 ]*"
+                  // Máximo visible: 10 dígitos + 2 espacios = 12 chars.
+                  maxLength={12}
                   value={phone}
                   onChange={(e) => {
-                    setPhone(e.target.value);
+                    // Solo guardamos dígitos; el helper los formatea como
+                    // "300 000 0000". Si el usuario pega "abc300" → "300".
+                    const formatted = formatPhoneDisplay(e.target.value);
+                    setPhone(formatted);
                     if (fieldErrors.phone) setFieldErrors((p) => ({ ...p, phone: undefined }));
                   }}
-                  hint={!fieldErrors.phone ? "Opcional" : undefined}
+                  onKeyDown={(e) => {
+                    // Bloqueamos teclas alfabéticas para que ni siquiera
+                    // se vean — el onChange filtraría pero el feedback
+                    // de "tecla rechazada" es mejor a nivel keydown.
+                    if (
+                      e.key.length === 1 &&
+                      !/[0-9 ]/.test(e.key) &&
+                      !e.ctrlKey &&
+                      !e.metaKey
+                    ) {
+                      e.preventDefault();
+                    }
+                  }}
+                  hint={!fieldErrors.phone ? `Opcional · ${PHONE_DIGITS} dígitos` : undefined}
                   error={fieldErrors.phone}
                   disabled={saveStatus === "loading"}
                 />
@@ -479,8 +510,21 @@ export default function ProfilePage() {
                   required
                   value={username}
                   onChange={(e) => {
-                    setUsername(e.target.value);
+                    const val = e.target.value;
+                    setUsername(val);
                     if (fieldErrors.username) setFieldErrors((p) => ({ ...p, username: undefined }));
+                    // Status sincrónico para que el botón se desactive en
+                    // el mismo render que el teclazo (sin esperar al
+                    // useEffect de validación live).
+                    if (!val) {
+                      setUsernameStatus("idle");
+                    } else if (!USERNAME_REGEX.test(val)) {
+                      setUsernameStatus("invalid");
+                    } else if (val === originalUsername) {
+                      setUsernameStatus("same");
+                    } else {
+                      setUsernameStatus("checking");
+                    }
                   }}
                   error={fieldErrors.username}
                   disabled={saveStatus === "loading"}
@@ -500,8 +544,10 @@ export default function ProfilePage() {
                     {usernameStatus === "checking" && (
                       <p className="text-xs text-slate-400">Verificando…</p>
                     )}
-                    {usernameStatus === "invalid" && username.length > 0 && (
-                      <p className="text-xs text-red-600">4-10 caracteres: letras, números, . y _</p>
+                    {usernameStatus === "invalid" && usernameInvalidReason(username) && (
+                      <p className="text-xs font-medium text-red-600">
+                        ⚠ {usernameInvalidReason(username)}
+                      </p>
                     )}
                     {usernameStatus === "check_failed" && (
                       <p className="text-xs font-medium text-orange-600">

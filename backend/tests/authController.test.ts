@@ -358,31 +358,31 @@ describe("updateMe — validaciones de entrada", () => {
     expect(updateUserProfileMock).not.toHaveBeenCalled();
   });
 
-  it("400 PHONE_INVALID si phone tiene menos de 7 dígitos", async () => {
+  it("400 PHONE_INVALID si phone tiene menos de 10 dígitos", async () => {
     const res = buildRes();
-    await authController.updateMe(baseReq({ body: { phone: "123" } }), res);
+    await authController.updateMe(baseReq({ body: { phone: "300123" } }), res);
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatchObject({ error: ErrorCode.PHONE_INVALID });
     expect(updateUserProfileMock).not.toHaveBeenCalled();
   });
 
-  it("400 PHONE_INVALID si phone tiene más de 15 dígitos", async () => {
+  it("400 PHONE_INVALID si phone tiene más de 10 dígitos", async () => {
     const res = buildRes();
-    await authController.updateMe(baseReq({ body: { phone: "1234567890123456" } }), res);
+    await authController.updateMe(baseReq({ body: { phone: "30012345678" } }), res);
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatchObject({ error: ErrorCode.PHONE_INVALID });
   });
 
-  it("acepta phone con caracteres no numéricos (cuenta solo dígitos)", async () => {
+  it("acepta phone con caracteres no numéricos si suma 10 dígitos", async () => {
     updateUserProfileMock.mockResolvedValueOnce({
       uid: "uid-1", username: "x", fullName: "Ana", email: "u@u.com",
       avatar: "default_avatar.png", provider: "password", online: false,
-      createdAt: new Date(), phone: "+57 300 123 4567",
+      createdAt: new Date(), phone: "300 000 0000",
     });
     const res = buildRes();
-    await authController.updateMe(baseReq({ body: { phone: "+57 300 123 4567" } }), res);
+    await authController.updateMe(baseReq({ body: { phone: "300 000 0000" } }), res);
     expect(res.statusCode).toBeUndefined();
-    expect(updateUserProfileMock).toHaveBeenCalledWith("uid-1", { phone: "+57 300 123 4567" });
+    expect(updateUserProfileMock).toHaveBeenCalledWith("uid-1", { phone: "300 000 0000" });
   });
 
   it("acepta phone vacío (borra el valor)", async () => {

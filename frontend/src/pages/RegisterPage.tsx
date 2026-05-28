@@ -8,6 +8,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { NeedsUsernameError, googleAuthErrorMessage } from "@/context/AuthContext";
 import { api, ApiError } from "@/services/api";
+import {
+  USERNAME_REGEX,
+  usernameInvalidReason,
+} from "@/utils/validation";
 
 const AVATARS = [
   "/avatars/avatar1.png",
@@ -19,27 +23,6 @@ const AVATARS = [
   "/avatars/avatar7.png",
   "/avatars/avatar8.png",
 ];
-
-const USERNAME_REGEX = /^[a-zA-Z0-9_.]{4,10}$/;
-const USERNAME_MIN = 4;
-const USERNAME_MAX = 10;
-const USERNAME_CHARSET = /^[a-zA-Z0-9_.]+$/;
-
-/**
- * Razón específica por la que un username falla la regex (para feedback
- * en tiempo real). Devuelve `null` cuando el valor cumple la regex
- * completa (4-10 caracteres del charset permitido).
- */
-function usernameInvalidReason(value: string): string | null {
-  if (!value) return null;
-  if (value.length < USERNAME_MIN)
-    return `Mínimo ${USERNAME_MIN} caracteres`;
-  if (value.length > USERNAME_MAX)
-    return `Máximo ${USERNAME_MAX} caracteres`;
-  if (!USERNAME_CHARSET.test(value))
-    return "Solo letras, números, punto y guion bajo";
-  return null;
-}
 
 type UsernameStatus =
   | "idle"

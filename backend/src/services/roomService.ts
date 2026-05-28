@@ -82,36 +82,45 @@ export const getRoomByAccessCode = async (accessCode: string): Promise<Room | nu
 };
 
 /**
- * Devuelve las salas creadas por el usuario, ordenadas de más reciente a más antigua.
+ * Devuelve las salas con las que el usuario tiene relación: las que creó
+ * (`ownerId === uid`) **y** aquellas a las que se unió (`participants`
+ * incluye `uid`). El resultado se ordena de más reciente a más antigua.
  *
- * Cubre tanto las "salas creadas" como el "historial del usuario" (en este
- * sprint el historial coincide con las salas propias; en sprints futuros se
- * puede ampliar con el campo `participants`).
+ * Implementación: dos queries paralelas + merge en memoria. Firestore no
+ * permite un `OR` entre `ownerId == X` y `array-contains X` en una sola
+ * query, así que hacemos las dos y deduplicamos por `roomId`. El set por
+ * usuario es pequeño, no hay problema de rendimiento.
  *
  * @param uid  Firebase UID del usuario autenticado.
  * @returns Array de `Room` (vacío si no tiene salas).
  */
 export const getRoomsByUser = async (uid: string): Promise<Room[]> => {
-  // Solo filtramos por ownerId (no usamos orderBy en la query para evitar
-  // exigir un índice compuesto en Firestore). El orden por fecha se hace en
-  // memoria: el set de salas de un usuario es pequeño.
-  const snap = await db
-    .collection(ROOMS_COLLECTION)
-    .where("ownerId", "==", uid)
-    .get();
+  const [ownedSnap, joinedSnap] = await Promise.all([
+    db.collection(ROOMS_COLLECTION).where("ownerId", "==", uid).get(),
+    db
+      .collection(ROOMS_COLLECTION)
+      .where("participants", "array-contains", uid)
+      .get(),
+  ]);
 
-  const rooms = snap.docs.map((d) => d.data() as Room);
+  // Dedup por roomId (la sala propia aparece en ambas queries).
+  const byId = new Map<string, Room>();
+  [...ownedSnap.docs, ...joinedSnap.docs].forEach((d) => {
+    const room = d.data() as Room;
+    byId.set(room.roomId, room);
+  });
 
   const toMillis = (value: Room["createdAt"]): number => {
     if (value instanceof Date) return value.getTime();
-    // Firestore Timestamp expone toMillis(); fallback a _seconds.
     const ts = value as { toMillis?: () => number; _seconds?: number };
     if (typeof ts.toMillis === "function") return ts.toMillis();
     if (typeof ts._seconds === "number") return ts._seconds * 1000;
     return 0;
   };
 
-  return rooms.sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+  return Array.from(byId.values()).sort(
+    (a, b) => toMillis(b.createdAt) - toMillis(a.createdAt)
+  );
 };
 
 /**

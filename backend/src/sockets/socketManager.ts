@@ -98,6 +98,23 @@ const isMemberOf = (
   return Array.isArray(room.participants) && room.participants.includes(uid);
 };
 
+/**
+ * Comprueba si `uid` tiene OTRO socket activo en `roomId` distinto del
+ * que se pasa como parámetro. Usado para evitar emitir `user_left` cuando
+ * un usuario cierra una pestaña pero sigue presente en otra.
+ */
+const userHasOtherSocketsInRoom = (
+  uid: string,
+  roomId: string,
+  excludeSocketId: string
+): boolean => {
+  for (const [sid, u] of connectedUsers.entries()) {
+    if (sid === excludeSocketId) continue;
+    if (u.uid === uid && u.roomId === roomId) return true;
+  }
+  return false;
+};
+
 // ─── Inicialización ─────────────────────────────────────────────────────────
 
 export const initSocket = (io: Server): void => {
@@ -195,6 +212,23 @@ export const initSocket = (io: Server): void => {
           // ack en vez de emitir un evento aparte → menos race-conditions.
           const messages = await messageService.getRoomMessages(roomId, limit);
 
+          // Lista de usuarios actualmente presentes en la sala (deduped
+          // por uid, porque un mismo usuario puede tener varias pestañas).
+          // Excluimos al propio uid: el cliente ya sabe que está ahí y lo
+          // pinta desde su contexto de auth.
+          const members: Array<{
+            uid: string;
+            username: string;
+            avatar?: string;
+          }> = [];
+          const seen = new Set<string>([uid]);
+          connectedUsers.forEach((u) => {
+            if (u.roomId !== roomId) return;
+            if (seen.has(u.uid)) return;
+            seen.add(u.uid);
+            members.push({ uid: u.uid, username: u.username, avatar: u.avatar });
+          });
+
           // Notificar al resto de la sala. Incluimos `avatar` para que el
           // cliente pueda pintar la tarjeta del nuevo participante sin un
           // round-trip extra a /api/users/:uid.
@@ -207,7 +241,7 @@ export const initSocket = (io: Server): void => {
 
           safeAck(ack, {
             ok: true,
-            data: { room, messages },
+            data: { room, messages, members },
           });
           logger.info(`${username} se unió a sala ${roomId}`);
         } catch (err) {
@@ -242,9 +276,15 @@ export const initSocket = (io: Server): void => {
           socket.leave(roomId);
           const current = connectedUsers.get(socket.id);
           if (current?.roomId === roomId) {
-            connectedUsers.set(socket.id, { uid, username });
+            // Quitamos el roomId pero conservamos el avatar para el día
+            // que esta misma conexión entre a otra sala.
+            connectedUsers.set(socket.id, { uid, username, avatar });
           }
-          socket.to(roomId).emit("user_left", { uid, username, roomId });
+          // Solo emitir user_left si esta era la última pestaña del
+          // usuario en esa sala — evita ghost-leaves en multi-tab.
+          if (!userHasOtherSocketsInRoom(uid, roomId, socket.id)) {
+            socket.to(roomId).emit("user_left", { uid, username, roomId });
+          }
           safeAck(ack, { ok: true });
           logger.info(`${username} salió de sala ${roomId}`);
         } catch (err) {
@@ -358,14 +398,19 @@ export const initSocket = (io: Server): void => {
     // ────────────────────────────────────────────────────────────────────
     socket.on("disconnect", async (reason) => {
       const user = connectedUsers.get(socket.id);
-      if (user?.roomId) {
+      // Borramos PRIMERO la entrada del socket que se va, para que el
+      // chequeo "tiene otras pestañas" no se cuente a sí mismo.
+      connectedUsers.delete(socket.id);
+      if (
+        user?.roomId &&
+        !userHasOtherSocketsInRoom(user.uid, user.roomId, socket.id)
+      ) {
         socket.to(user.roomId).emit("user_left", {
           uid: user.uid,
           username: user.username,
           roomId: user.roomId,
         });
       }
-      connectedUsers.delete(socket.id);
 
       if (profile) {
         await authService

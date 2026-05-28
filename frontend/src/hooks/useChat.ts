@@ -109,7 +109,12 @@ export function useChat(roomId: string | undefined): UseChatResult {
       socket.emit(
         "join_room",
         { roomId: rid, limit: 50 },
-        (ack: SocketAck<{ messages: Message[] }>) => {
+        (
+          ack: SocketAck<{
+            messages: Message[];
+            members: PresentUser[];
+          }>
+        ) => {
           if (!ack || ack.ok === false) {
             const code = ack && ack.ok === false ? ack.error : "UNKNOWN";
             setError(code);
@@ -121,6 +126,17 @@ export function useChat(roomId: string | undefined): UseChatResult {
           setStatus("connected");
           if (ack.data?.messages?.length) {
             mergeMessages(ack.data.messages);
+          }
+          // Sembrar la lista de presentes con los que YA estaban en la
+          // sala cuando entramos. Sin esto, solo aprenderíamos quién está
+          // en la sala a partir de user_joined eventos posteriores —
+          // perderíamos a todos los que entraron antes que nosotros.
+          if (ack.data?.members) {
+            setPresentUsers(ack.data.members);
+          } else {
+            // Reconexión sin members → al menos reseteamos para que la UI
+            // no quede con presencia vieja antes de que llegue user_joined.
+            setPresentUsers([]);
           }
         }
       );
@@ -238,21 +254,39 @@ export function useChat(roomId: string | undefined): UseChatResult {
       if (status === "offline") setStatus("reconnecting");
     };
     const onOffline = () => setStatus("offline");
+    // Si el usuario cierra/recarga la ventana, emitimos leave_room antes
+    // de que se corte el transporte. El handler `disconnect` del backend
+    // también dispara user_left como red de seguridad, pero hacerlo aquí
+    // libera al resto de la sala antes del ping-timeout (20 s).
+    const onBeforeUnload = () => {
+      const s = socketRef.current;
+      if (s && roomId) {
+        s.emit("leave_room", { roomId });
+      }
+    };
     if (typeof window !== "undefined") {
       window.addEventListener("online", onOnline);
       window.addEventListener("offline", onOffline);
+      window.addEventListener("beforeunload", onBeforeUnload);
+      window.addEventListener("pagehide", onBeforeUnload);
     }
 
     return () => {
       active = false;
-      if (socket && roomId) {
+      const s = socketRef.current;
+      if (s && roomId) {
         // Avisar al servidor para que limpie presencia. No desconectamos
         // el socket (puede reutilizarse en otra sala).
-        socket.emit("leave_room", { roomId });
+        s.emit("leave_room", { roomId });
       }
+      // Limpiamos cualquier presencia local para que si el usuario vuelve
+      // a la sala más tarde no quede gente "ghost" del tab anterior.
+      setPresentUsers([]);
       if (typeof window !== "undefined") {
         window.removeEventListener("online", onOnline);
         window.removeEventListener("offline", onOffline);
+        window.removeEventListener("beforeunload", onBeforeUnload);
+        window.removeEventListener("pagehide", onBeforeUnload);
       }
     };
     // status fuera de deps a propósito — solo lo leemos en handlers.

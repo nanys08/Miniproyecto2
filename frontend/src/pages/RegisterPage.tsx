@@ -21,6 +21,25 @@ const AVATARS = [
 ];
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_.]{4,10}$/;
+const USERNAME_MIN = 4;
+const USERNAME_MAX = 10;
+const USERNAME_CHARSET = /^[a-zA-Z0-9_.]+$/;
+
+/**
+ * Razón específica por la que un username falla la regex (para feedback
+ * en tiempo real). Devuelve `null` cuando el valor cumple la regex
+ * completa (4-10 caracteres del charset permitido).
+ */
+function usernameInvalidReason(value: string): string | null {
+  if (!value) return null;
+  if (value.length < USERNAME_MIN)
+    return `Mínimo ${USERNAME_MIN} caracteres`;
+  if (value.length > USERNAME_MAX)
+    return `Máximo ${USERNAME_MAX} caracteres`;
+  if (!USERNAME_CHARSET.test(value))
+    return "Solo letras, números, punto y guion bajo";
+  return null;
+}
 
 type UsernameStatus =
   | "idle"
@@ -53,6 +72,10 @@ export default function RegisterPage() {
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const googleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Sequence numbers para descartar respuestas obsoletas si el usuario
+  // sigue tecleando mientras una llamada al backend está en vuelo.
+  const checkSeqRef = useRef(0);
+  const googleCheckSeqRef = useRef(0);
 
   const [googleAvatar, setGoogleAvatar] = useState<number | null>(null);
   const [googleAvatarError, setGoogleAvatarError] = useState("");
@@ -74,25 +97,28 @@ export default function RegisterPage() {
     }
   }, [authUser]);
 
+  // El status se actualiza SINCRÓNICAMENTE en el `onChange` del input
+  // (más abajo) — así el botón se deshabilita en el mismo render que el
+  // teclazo, sin ventana de carrera. Este efecto solo se encarga de
+  // disparar el fetch debounced cuando el status es "checking" y de
+  // descartar respuestas obsoletas si el usuario sigue tecleando mientras
+  // una llamada al backend está en vuelo.
   useEffect(() => {
-    if (!username) { setUsernameStatus("idle"); return; }
-    if (!USERNAME_REGEX.test(username)) { setUsernameStatus("invalid"); return; }
-    setUsernameStatus("checking");
+    if (usernameStatus !== "checking") return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const seq = ++checkSeqRef.current;
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await api.get<{ available: boolean }>(`/auth/check-username/${username}`);
+        if (seq !== checkSeqRef.current) return; // hay una verificación más nueva
         setUsernameStatus(res.available ? "available" : "taken");
       } catch {
-        // El backend devolvió error (lo más típico: 500/503 por Firestore
-        // caído o credenciales mal configuradas). Mostramos un estado
-        // visible en vez de tragarnos el error — sin esto, el usuario se
-        // queda esperando un ✅ que nunca llega.
+        if (seq !== checkSeqRef.current) return;
         setUsernameStatus("check_failed");
       }
     }, 500);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [username]);
+  }, [username, usernameStatus]);
 
   function validateAll(): boolean {
     let valid = true;
@@ -347,7 +373,21 @@ export default function RegisterPage() {
                   placeholder="Mínimo 4 caracteres"
                   autoComplete="username"
                   value={username}
-                  onChange={(e) => { setUsername(e.target.value); setUsernameError(""); }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setUsername(val);
+                    setUsernameError("");
+                    // Sincrónico: el botón se deshabilita en el mismo
+                    // render que el teclazo. El efecto debounced se
+                    // encargará de la llamada al backend.
+                    if (!val) {
+                      setUsernameStatus("idle");
+                    } else if (!USERNAME_REGEX.test(val)) {
+                      setUsernameStatus("invalid");
+                    } else {
+                      setUsernameStatus("checking");
+                    }
+                  }}
                   error={usernameError}
                 />
                 {!usernameError && usernameStatus === "available" && (
@@ -358,6 +398,11 @@ export default function RegisterPage() {
                 )}
                 {!usernameError && usernameStatus === "checking" && (
                   <p className="text-xs text-slate-400" role="status" aria-live="polite">Verificando...</p>
+                )}
+                {!usernameError && usernameStatus === "invalid" && usernameInvalidReason(username) && (
+                  <p className="text-xs text-red-600 font-medium" role="status" aria-live="polite">
+                    ⚠ {usernameInvalidReason(username)}
+                  </p>
                 )}
                 {!usernameError && usernameStatus === "check_failed" && (
                   <p className="text-xs text-orange-600 font-medium" role="status" aria-live="polite">
@@ -496,19 +541,28 @@ export default function RegisterPage() {
                     setGoogleUsername(val);
                     setGoogleUsernameError("");
                     if (googleDebounceRef.current) clearTimeout(googleDebounceRef.current);
-                    if (USERNAME_REGEX.test(val)) {
-                      setGoogleUsernameStatus("checking");
-                      googleDebounceRef.current = setTimeout(async () => {
-                        try {
-                          const res = await api.get<{ available: boolean }>(`/auth/check-username/${val}`);
-                          setGoogleUsernameStatus(res.available ? "available" : "taken");
-                        } catch {
-                          setGoogleUsernameStatus("check_failed");
-                        }
-                      }, 500);
-                    } else {
-                      setGoogleUsernameStatus(val.length === 0 ? "idle" : "invalid");
+                    // Status sincrónico para que el botón se deshabilite
+                    // ya mismo (no esperamos al backend).
+                    if (!val) {
+                      setGoogleUsernameStatus("idle");
+                      return;
                     }
+                    if (!USERNAME_REGEX.test(val)) {
+                      setGoogleUsernameStatus("invalid");
+                      return;
+                    }
+                    setGoogleUsernameStatus("checking");
+                    const seq = ++googleCheckSeqRef.current;
+                    googleDebounceRef.current = setTimeout(async () => {
+                      try {
+                        const res = await api.get<{ available: boolean }>(`/auth/check-username/${val}`);
+                        if (seq !== googleCheckSeqRef.current) return; // stale
+                        setGoogleUsernameStatus(res.available ? "available" : "taken");
+                      } catch {
+                        if (seq !== googleCheckSeqRef.current) return;
+                        setGoogleUsernameStatus("check_failed");
+                      }
+                    }, 500);
                   }}
                   error={googleUsernameError}
                 />
@@ -520,6 +574,11 @@ export default function RegisterPage() {
                 )}
                 {!googleUsernameError && googleUsernameStatus === "checking" && (
                   <p className="mt-1 text-xs text-slate-400" role="status" aria-live="polite">Verificando...</p>
+                )}
+                {!googleUsernameError && googleUsernameStatus === "invalid" && usernameInvalidReason(googleUsername) && (
+                  <p className="mt-1 text-xs text-red-600 font-medium" role="status" aria-live="polite">
+                    ⚠ {usernameInvalidReason(googleUsername)}
+                  </p>
                 )}
                 {!googleUsernameError && googleUsernameStatus === "check_failed" && (
                   <p className="mt-1 text-xs text-orange-600" role="status" aria-live="polite">

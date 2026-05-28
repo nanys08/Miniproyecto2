@@ -120,9 +120,13 @@ export default function RegisterPage() {
     e.preventDefault();
     setGlobalError("");
     if (!validateAll()) return;
-    if (usernameStatus === "checking") {
-      // No silenciamos el clic — el usuario debe saber por qué nada pasa.
-      setUsernameError("Espera un momento, estamos verificando el username…");
+    // Defensa en profundidad: el botón ya está disabled hasta que el
+    // username esté server-verified como disponible, pero el Enter dentro
+    // de un input podría saltarse esa barrera. Aquí bloqueamos también.
+    if (usernameStatus !== "available") {
+      if (usernameStatus === "checking") {
+        setUsernameError("Espera un momento, estamos verificando el username…");
+      }
       return;
     }
     setLoading(true);
@@ -185,16 +189,15 @@ export default function RegisterPage() {
     e.preventDefault();
     if (googleAvatar === null) { setGoogleAvatarError("Elige un avatar"); return; }
     if (!USERNAME_REGEX.test(googleUsername)) { setGoogleUsernameError("Username inválido"); return; }
-    // Solo bloqueamos cuando SABEMOS que el username está tomado, o cuando
-    // la verificación está todavía en curso (esperamos). Si la verificación
-    // falló (red, backend frío, etc.) dejamos enviar — el backend tiene la
-    // verdad definitiva y, si está tomado, responderá USERNAME_ALREADY_EXISTS.
-    if (googleUsernameStatus === "checking") {
-      setGoogleUsernameError("Espera un momento, estamos verificando…");
-      return;
-    }
-    if (googleUsernameStatus === "taken") {
-      setGoogleUsernameError("Ese username ya está en uso, elige otro");
+    // Defensa en profundidad: el botón está disabled mientras el username
+    // no esté "available", pero el Enter podría bypassear. Solo
+    // permitimos enviar cuando el backend confirmó disponibilidad.
+    if (googleUsernameStatus !== "available") {
+      if (googleUsernameStatus === "checking") {
+        setGoogleUsernameError("Espera un momento, estamos verificando…");
+      } else if (googleUsernameStatus === "taken") {
+        setGoogleUsernameError("Ese username ya está en uso, elige otro");
+      }
       return;
     }
     setGoogleLoading(true);
@@ -408,9 +411,33 @@ export default function RegisterPage() {
               )}
             </div>
 
-            <Button type="submit" isLoading={loading} className="w-full !py-3.5 !text-base !rounded-xl font-bold mt-2">
+            <Button
+              type="submit"
+              isLoading={loading}
+              disabled={loading || usernameStatus !== "available"}
+              aria-describedby={
+                usernameStatus !== "available" ? "submit-blocked-hint" : undefined
+              }
+              className="w-full !py-3.5 !text-base !rounded-xl font-bold mt-2"
+            >
               Crear cuenta
             </Button>
+            {usernameStatus !== "available" && (
+              <p
+                id="submit-blocked-hint"
+                role="status"
+                aria-live="polite"
+                className="text-center text-xs text-slate-500"
+              >
+                {usernameStatus === "checking"
+                  ? "Esperando a verificar tu username…"
+                  : usernameStatus === "taken"
+                  ? "Elige un username disponible para continuar"
+                  : usernameStatus === "check_failed"
+                  ? "No pudimos verificar el username, escribe una letra para reintentar"
+                  : "Elige un username válido para continuar"}
+              </p>
+            )}
           </form>
 
           <p className="mt-6 text-center text-sm text-slate-500 w-full">
@@ -500,9 +527,33 @@ export default function RegisterPage() {
                   </p>
                 )}
               </div>
-              <Button type="submit" isLoading={googleLoading} className="w-full !rounded-xl">
+              <Button
+                type="submit"
+                isLoading={googleLoading}
+                disabled={googleLoading || googleUsernameStatus !== "available"}
+                aria-describedby={
+                  googleUsernameStatus !== "available" ? "google-submit-hint" : undefined
+                }
+                className="w-full !rounded-xl"
+              >
                 Guardar y continuar
               </Button>
+              {googleUsernameStatus !== "available" && (
+                <p
+                  id="google-submit-hint"
+                  role="status"
+                  aria-live="polite"
+                  className="text-center text-xs text-slate-500"
+                >
+                  {googleUsernameStatus === "checking"
+                    ? "Esperando a verificar tu username…"
+                    : googleUsernameStatus === "taken"
+                    ? "Elige un username disponible para continuar"
+                    : googleUsernameStatus === "check_failed"
+                    ? "No pudimos verificar el username, escribe una letra para reintentar"
+                    : "Elige un username válido para continuar"}
+                </p>
+              )}
             </form>
           </div>
         </div>

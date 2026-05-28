@@ -197,7 +197,10 @@ export const initSocket = (io: Server): void => {
           const prev = connectedUsers.get(socket.id);
           if (prev?.roomId && prev.roomId !== roomId) {
             socket.leave(prev.roomId);
-            socket.to(prev.roomId).emit("user_left", {
+            // Usamos `io.to(...)` en vez de `socket.to(...)` para que el
+            // emit funcione incluso si el socket está en un estado de
+            // transición (post-leave o mid-disconnect).
+            io.to(prev.roomId).emit("user_left", {
               uid,
               username,
               roomId: prev.roomId,
@@ -231,8 +234,9 @@ export const initSocket = (io: Server): void => {
 
           // Notificar al resto de la sala. Incluimos `avatar` para que el
           // cliente pueda pintar la tarjeta del nuevo participante sin un
-          // round-trip extra a /api/users/:uid.
-          socket.to(roomId).emit("user_joined", {
+          // round-trip extra a /api/users/:uid. `io.to()` + `except()`
+          // garantiza que la entrega no dependa del estado del socket.
+          io.to(roomId).except(socket.id).emit("user_joined", {
             uid,
             username,
             avatar,
@@ -282,8 +286,11 @@ export const initSocket = (io: Server): void => {
           }
           // Solo emitir user_left si esta era la última pestaña del
           // usuario en esa sala — evita ghost-leaves en multi-tab.
+          // Usamos `io.to(...)` para que la entrega no dependa del estado
+          // del socket (que ya hizo `socket.leave` y podría estar en
+          // mid-disconnect si el cliente cerró la pestaña a la vez).
           if (!userHasOtherSocketsInRoom(uid, roomId, socket.id)) {
-            socket.to(roomId).emit("user_left", { uid, username, roomId });
+            io.to(roomId).emit("user_left", { uid, username, roomId });
           }
           safeAck(ack, { ok: true });
           logger.info(`${username} salió de sala ${roomId}`);
@@ -405,7 +412,11 @@ export const initSocket = (io: Server): void => {
         user?.roomId &&
         !userHasOtherSocketsInRoom(user.uid, user.roomId, socket.id)
       ) {
-        socket.to(user.roomId).emit("user_left", {
+        // Usar `io.to(...)` es CRÍTICO aquí: el socket ya está
+        // desconectado, así que `socket.to(...).emit(...)` se descartaría
+        // silenciosamente y el resto de la sala nunca se enteraría de
+        // que este usuario se fue.
+        io.to(user.roomId).emit("user_left", {
           uid: user.uid,
           username: user.username,
           roomId: user.roomId,

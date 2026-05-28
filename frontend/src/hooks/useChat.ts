@@ -64,6 +64,14 @@ interface UseChatResult {
   messages: Message[];
   presentUsers: PresentUser[];
   sendMessage: (content: string) => Promise<boolean>;
+  /**
+   * Emite `leave_room` y espera el ack del servidor (con timeout corto).
+   * Llamar antes de navegar fuera de la sala — garantiza que el resto de
+   * los participantes reciban `user_left` antes de que el componente se
+   * desmonte. La limpieza de useEffect emite de nuevo como red de
+   * seguridad, pero esta llamada hace que el resultado sea determinista.
+   */
+  leaveRoom: () => Promise<void>;
 }
 
 const STATUS_LABELS: Record<ChatStatus, string> = {
@@ -249,6 +257,22 @@ export function useChat(roomId: string | undefined): UseChatResult {
     };
   }, [socket, roomId, emitJoin, mergeMessages]);
 
+  // ── leaveRoom explícito (para llamar antes de navegar) ─────────────────
+  const leaveRoom = useCallback((): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      if (!socket || !roomId) {
+        resolve();
+        return;
+      }
+      // Timeout corto: si el servidor no responde, no bloqueamos la UI.
+      const timer = setTimeout(() => resolve(), 1500);
+      socket.emit("leave_room", { roomId }, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }, [socket, roomId]);
+
   // ── sendMessage con ack y timeout ───────────────────────────────────────
   const sendMessage = useCallback(
     async (content: string): Promise<boolean> => {
@@ -278,5 +302,6 @@ export function useChat(roomId: string | undefined): UseChatResult {
     messages,
     presentUsers,
     sendMessage,
+    leaveRoom,
   };
 }

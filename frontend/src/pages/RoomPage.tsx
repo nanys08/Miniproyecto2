@@ -72,8 +72,22 @@ export default function RoomPage() {
   }, [roomId]);
 
   // ── Suscribirse al chat ─────────────────────────────────────────────────
-  const { status, statusLabel, messages, sendMessage, presentUsers } =
-    useChat(roomId);
+  const {
+    status,
+    statusLabel,
+    messages,
+    sendMessage,
+    presentUsers,
+    leaveRoom,
+  } = useChat(roomId);
+
+  // Botón "Salir de la sala": esperamos el ack del `leave_room` ANTES de
+  // navegar. Sin esto, React podría desmontar el componente antes de que
+  // el emit llegue al servidor, y el resto de la sala no se enteraría.
+  const handleLeave = async () => {
+    await leaveRoom();
+    navigate("/dashboard");
+  };
 
   // ── Cache de perfiles públicos (uid → PublicUser) ─────────────────────
   // Solo nos hace falta como fallback: el backend ya envía `avatar` dentro
@@ -383,7 +397,7 @@ export default function RoomPage() {
 
           <button
             type="button"
-            onClick={() => navigate("/dashboard")}
+            onClick={handleLeave}
             className={cn(
               "inline-flex items-center gap-2 rounded-md border-2 border-red-500 px-4 py-1.5",
               "text-sm font-semibold text-red-400 transition-colors",

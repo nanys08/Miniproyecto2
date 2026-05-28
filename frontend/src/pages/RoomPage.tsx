@@ -40,6 +40,12 @@ interface ToggleControl {
   label: string;
   icon: JSX.Element;
   active: boolean;
+  /**
+   * `true` si el botón refleja un estado que se puede "apagar" (mic, cam,
+   * pantalla). Cuando `active === false` y `isToggle === true`, el botón
+   * se pinta en rojo para hacer visible que ese periférico está silenciado.
+   */
+  isToggle: boolean;
   onClick: () => void;
 }
 
@@ -79,6 +85,8 @@ export default function RoomPage() {
     sendMessage,
     presentUsers,
     leaveRoom,
+    mediaStates,
+    publishMediaState,
   } = useChat(roomId);
 
   // Botón "Salir de la sala": esperamos el ack del `leave_room` ANTES de
@@ -117,10 +125,27 @@ export default function RoomPage() {
   }, [presentUsers, user, profileCache]);
 
   // ── Controles locales de micrófono / cámara / pantalla ─────────────────
-  // (En este sprint son indicadores visuales; WebRTC viene en TS-03.)
+  // El estado VIVE en este componente; cada cambio se publica por socket
+  // (`publishMediaState`) para que el resto de la sala vea los iconos
+  // actualizados. WebRTC real viene en TS-03 — por ahora son solo flags.
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [screenOn, setScreenOn] = useState(false);
+
+  const toggleMic = () => {
+    setMicOn((prev) => {
+      const next = !prev;
+      publishMediaState({ micOn: next });
+      return next;
+    });
+  };
+  const toggleCam = () => {
+    setCamOn((prev) => {
+      const next = !prev;
+      publishMediaState({ camOn: next });
+      return next;
+    });
+  };
 
   // ── Participantes en pantalla ──────────────────────────────────────────
   // El grid muestra ÚNICAMENTE quienes están actualmente conectados:
@@ -179,7 +204,8 @@ export default function RoomPage() {
     {
       label: micOn ? "Silenciar micrófono" : "Activar micrófono",
       active: micOn,
-      onClick: () => setMicOn((v) => !v),
+      isToggle: true,
+      onClick: toggleMic,
       icon: micOn ? (
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
@@ -196,7 +222,8 @@ export default function RoomPage() {
     {
       label: camOn ? "Apagar cámara" : "Encender cámara",
       active: camOn,
-      onClick: () => setCamOn((v) => !v),
+      isToggle: true,
+      onClick: toggleCam,
       icon: camOn ? (
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="m23 7-7 5 7 5V7z" />
@@ -211,6 +238,7 @@ export default function RoomPage() {
     {
       label: screenOn ? "Dejar de compartir" : "Compartir pantalla",
       active: screenOn,
+      isToggle: false,
       onClick: () => setScreenOn((v) => !v),
       icon: (
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -330,14 +358,29 @@ export default function RoomPage() {
             {Array.from({ length: GRID_SLOTS }).map((_, idx) => {
               const p = participants[idx];
               if (p) {
+                // Para el propio usuario usamos el estado local
+                // (el toggle inmediato no espera al broadcast). Para los
+                // demás, leemos el estado replicado por el socket
+                // (default true si aún no llegó nada para ese uid).
+                const remote = mediaStates[p.uid];
+                const tileCameraOff = p.isYou
+                  ? !camOn
+                  : remote
+                  ? !remote.camOn
+                  : false;
+                const tileMicOff = p.isYou
+                  ? !micOn
+                  : remote
+                  ? !remote.micOn
+                  : false;
                 return (
                   <VideoTile
                     key={p.uid}
                     name={p.isYou ? "Tú" : p.username}
                     avatar={p.avatar}
                     isYou={p.isYou}
-                    cameraOff={p.isYou ? !camOn : false}
-                    micOff={p.isYou ? !micOn : false}
+                    cameraOff={tileCameraOff}
+                    micOff={tileMicOff}
                   />
                 );
               }
@@ -362,25 +405,35 @@ export default function RoomPage() {
       <footer className="border-t border-slate-800 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Controles de la sala">
-            {controls.map((c) => (
-              <button
-                key={c.label}
-                type="button"
-                onClick={c.onClick}
-                aria-label={c.label}
-                aria-pressed={c.active}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
-                  c.active
-                    ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
-                    : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800"
-                )}
-              >
-                {c.icon}
-                <span className="hidden sm:inline">{c.label.split(" ")[1] ?? c.label}</span>
-              </button>
-            ))}
+            {controls.map((c) => {
+              // Toggle apagado (mic/cam silenciados) → rojo normativo
+              // para que el usuario y los demás vean el estado al vuelo.
+              const offToggleStyle =
+                c.isToggle && !c.active
+                  ? "border-red-500 bg-red-500/15 text-red-300 hover:bg-red-500/25"
+                  : c.active
+                  ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
+                  : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800";
+              return (
+                <button
+                  key={c.label}
+                  type="button"
+                  onClick={c.onClick}
+                  aria-label={c.label}
+                  aria-pressed={c.active}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                    offToggleStyle
+                  )}
+                >
+                  {c.icon}
+                  <span className="hidden sm:inline">
+                    {c.label.split(" ")[1] ?? c.label}
+                  </span>
+                </button>
+              );
+            })}
             <button
               type="button"
               aria-label="Más opciones"

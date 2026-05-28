@@ -74,6 +74,14 @@ interface ConnectedUser {
   username: string;
   avatar?: string;
   roomId?: string;
+  /**
+   * Estado actual del micrófono publicado por este socket.
+   * Default: true al conectarse. El cliente puede cambiarlo con el evento
+   * `media_state` y el servidor lo replica al resto de la sala.
+   */
+  micOn: boolean;
+  /** Estado actual de la cámara. Default: true. */
+  camOn: boolean;
 }
 const connectedUsers = new Map<string, ConnectedUser>();
 
@@ -148,7 +156,13 @@ export const initSocket = (io: Server): void => {
     const username = profile?.username || "Anónimo";
     const avatar = profile?.avatar;
 
-    connectedUsers.set(socket.id, { uid, username, avatar });
+    connectedUsers.set(socket.id, {
+      uid,
+      username,
+      avatar,
+      micOn: true,
+      camOn: true,
+    });
 
     // Marcar online solo si el perfil existe (evita update sobre doc inexistente)
     if (profile) {
@@ -207,8 +221,20 @@ export const initSocket = (io: Server): void => {
             });
           }
 
+          // Preservamos el estado de medios actual del socket si ya existía
+          // (caso de re-join tras reconexión). Si no, default true.
+          const existingMedia = connectedUsers.get(socket.id);
+          const micOn = existingMedia?.micOn ?? true;
+          const camOn = existingMedia?.camOn ?? true;
           socket.join(roomId);
-          connectedUsers.set(socket.id, { uid, username, avatar, roomId });
+          connectedUsers.set(socket.id, {
+            uid,
+            username,
+            avatar,
+            roomId,
+            micOn,
+            camOn,
+          });
 
           // Historial para soportar reconexión: el cliente lo pinta antes
           // de empezar a escuchar `receive_message`. Lo devolvemos en el
@@ -219,28 +245,39 @@ export const initSocket = (io: Server): void => {
           // por uid, porque un mismo usuario puede tener varias pestañas).
           // Excluimos al propio uid: el cliente ya sabe que está ahí y lo
           // pinta desde su contexto de auth.
+          // Incluimos el estado de medios para que la UI del recién
+          // llegado pinte correctamente el mic/cam de los demás.
           const members: Array<{
             uid: string;
             username: string;
             avatar?: string;
+            micOn: boolean;
+            camOn: boolean;
           }> = [];
           const seen = new Set<string>([uid]);
           connectedUsers.forEach((u) => {
             if (u.roomId !== roomId) return;
             if (seen.has(u.uid)) return;
             seen.add(u.uid);
-            members.push({ uid: u.uid, username: u.username, avatar: u.avatar });
+            members.push({
+              uid: u.uid,
+              username: u.username,
+              avatar: u.avatar,
+              micOn: u.micOn,
+              camOn: u.camOn,
+            });
           });
 
-          // Notificar al resto de la sala. Incluimos `avatar` para que el
-          // cliente pueda pintar la tarjeta del nuevo participante sin un
-          // round-trip extra a /api/users/:uid. `io.to()` + `except()`
-          // garantiza que la entrega no dependa del estado del socket.
+          // Notificar al resto de la sala. Incluimos `avatar` y el estado
+          // inicial de medios para que la tarjeta del nuevo participante
+          // se pinte con la información correcta de entrada.
           io.to(roomId).except(socket.id).emit("user_joined", {
             uid,
             username,
             avatar,
             roomId,
+            micOn,
+            camOn,
           });
 
           safeAck(ack, {
@@ -280,9 +317,16 @@ export const initSocket = (io: Server): void => {
           socket.leave(roomId);
           const current = connectedUsers.get(socket.id);
           if (current?.roomId === roomId) {
-            // Quitamos el roomId pero conservamos el avatar para el día
-            // que esta misma conexión entre a otra sala.
-            connectedUsers.set(socket.id, { uid, username, avatar });
+            // Quitamos el roomId pero conservamos avatar + estado de medios
+            // para que si esta misma conexión entra a otra sala mantenga
+            // el último mic/cam que el usuario eligió.
+            connectedUsers.set(socket.id, {
+              uid,
+              username,
+              avatar,
+              micOn: current.micOn,
+              camOn: current.camOn,
+            });
           }
           // Solo emitir user_left si esta era la última pestaña del
           // usuario en esa sala — evita ghost-leaves en multi-tab.
@@ -354,6 +398,42 @@ export const initSocket = (io: Server): void => {
           logger.error("send_message: error persistiendo", err);
           safeAck(ack, { ok: false, error: ErrorCode.INTERNAL_ERROR });
         }
+      }
+    );
+
+    // ────────────────────────────────────────────────────────────────────
+    // media_state — Anunciar cambios de mic/cam al resto de la sala
+    // ────────────────────────────────────────────────────────────────────
+    //
+    // Payload: { roomId, micOn?, camOn? }. El cliente envía el estado
+    // completo (no diff) cada vez que el usuario alterna mic o cam.
+    // El servidor:
+    //   1. Actualiza `connectedUsers[socket.id]` con el nuevo estado.
+    //   2. Broadcastea a la sala (excepto al emisor) con `io.to(...)`
+    //      para que la entrega sea independiente del estado del socket.
+    //   3. Nuevos joiners reciben el estado actual vía `members` del ack
+    //      de `join_room`, así que entran ya viendo el mic/cam correcto.
+    socket.on(
+      "media_state",
+      (payload: { roomId?: string; micOn?: boolean; camOn?: boolean }) => {
+        const targetRoom = payload?.roomId;
+        if (!targetRoom || typeof targetRoom !== "string") return;
+        const current = connectedUsers.get(socket.id);
+        if (!current || current.roomId !== targetRoom) return;
+
+        const micOn =
+          typeof payload.micOn === "boolean" ? payload.micOn : current.micOn;
+        const camOn =
+          typeof payload.camOn === "boolean" ? payload.camOn : current.camOn;
+
+        connectedUsers.set(socket.id, { ...current, micOn, camOn });
+
+        io.to(targetRoom).except(socket.id).emit("media_state", {
+          uid,
+          roomId: targetRoom,
+          micOn,
+          camOn,
+        });
       }
     );
 

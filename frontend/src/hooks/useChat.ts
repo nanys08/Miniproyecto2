@@ -48,6 +48,8 @@ export interface PresenceEvent {
   /** Avatar del usuario (lo incluye el backend desde el sprint actual). */
   avatar?: string;
   roomId: string;
+  micOn?: boolean;
+  camOn?: boolean;
 }
 
 /** Usuarios actualmente conectados a la sala según user_joined/user_left. */
@@ -55,6 +57,21 @@ export interface PresentUser {
   uid: string;
   username: string;
   avatar?: string;
+  micOn?: boolean;
+  camOn?: boolean;
+}
+
+/** Estado de medios de un usuario remoto. */
+export interface MediaState {
+  micOn: boolean;
+  camOn: boolean;
+}
+
+interface MediaStateEvent {
+  uid: string;
+  roomId: string;
+  micOn: boolean;
+  camOn: boolean;
 }
 
 interface UseChatResult {
@@ -72,6 +89,10 @@ interface UseChatResult {
    * seguridad, pero esta llamada hace que el resultado sea determinista.
    */
   leaveRoom: () => Promise<void>;
+  /** Estado de mic/cam de cada usuario remoto (por uid). */
+  mediaStates: Record<string, MediaState>;
+  /** Notifica al servidor un cambio local de mic/cam. */
+  publishMediaState: (state: Partial<MediaState>) => void;
 }
 
 const STATUS_LABELS: Record<ChatStatus, string> = {
@@ -94,8 +115,15 @@ export function useChat(roomId: string | undefined): UseChatResult {
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [presentUsers, setPresentUsers] = useState<PresentUser[]>([]);
+  const [mediaStates, setMediaStates] = useState<Record<string, MediaState>>(
+    {}
+  );
   const [socket, setSocket] = useState<Socket | null>(null);
   const everJoinedRef = useRef(false);
+  // Último estado de medios que el usuario actual publicó. Lo guardamos
+  // para reenviarlo automáticamente tras una reconexión (si el server
+  // perdió la sesión, igual sabe nuestro estado).
+  const lastPublishedMediaRef = useRef<MediaState>({ micOn: true, camOn: true });
 
   // ── Helper: dedup + sort cronológico ────────────────────────────────────
   const mergeMessages = useCallback((incoming: Message[]) => {
@@ -133,7 +161,33 @@ export function useChat(roomId: string | undefined): UseChatResult {
             mergeMessages(ack.data.messages);
           }
           // Sembrar presentes con quienes YA estaban en la sala.
-          setPresentUsers(ack.data?.members ?? []);
+          const members = ack.data?.members ?? [];
+          setPresentUsers(members);
+          // Sembrar el estado de medios remoto desde los miembros.
+          setMediaStates((prev) => {
+            const next = { ...prev };
+            members.forEach((m) => {
+              if (
+                typeof m.micOn === "boolean" &&
+                typeof m.camOn === "boolean"
+              ) {
+                next[m.uid] = { micOn: m.micOn, camOn: m.camOn };
+              }
+            });
+            return next;
+          });
+          // Reenviar el último estado de medios local tras (re)conectar,
+          // para que el server y el resto de la sala lo vean alineado
+          // (sin esto, una reconexión nos mostraría con mic/cam "on" para
+          // los demás aunque el usuario los tenga apagados).
+          const last = lastPublishedMediaRef.current;
+          if (!last.micOn || !last.camOn) {
+            s.emit("media_state", {
+              roomId: rid,
+              micOn: last.micOn,
+              camOn: last.camOn,
+            });
+          }
         }
       );
     },
@@ -198,12 +252,37 @@ export function useChat(roomId: string | undefined): UseChatResult {
           ? prev
           : [
               ...prev,
-              { uid: evt.uid, username: evt.username, avatar: evt.avatar },
+              {
+                uid: evt.uid,
+                username: evt.username,
+                avatar: evt.avatar,
+                micOn: evt.micOn,
+                camOn: evt.camOn,
+              },
             ]
       );
+      // Sembrar también el estado de medios si vino en el payload.
+      if (typeof evt.micOn === "boolean" && typeof evt.camOn === "boolean") {
+        setMediaStates((prev) => ({
+          ...prev,
+          [evt.uid]: { micOn: evt.micOn!, camOn: evt.camOn! },
+        }));
+      }
     };
     const onUserLeft = (evt: PresenceEvent) => {
       setPresentUsers((prev) => prev.filter((u) => u.uid !== evt.uid));
+      setMediaStates((prev) => {
+        if (!(evt.uid in prev)) return prev;
+        const next = { ...prev };
+        delete next[evt.uid];
+        return next;
+      });
+    };
+    const onMediaState = (evt: MediaStateEvent) => {
+      setMediaStates((prev) => ({
+        ...prev,
+        [evt.uid]: { micOn: evt.micOn, camOn: evt.camOn },
+      }));
     };
 
     socket.on("connect", onConnect);
@@ -213,6 +292,7 @@ export function useChat(roomId: string | undefined): UseChatResult {
     socket.on("receive_message", onReceiveMessage);
     socket.on("user_joined", onUserJoined);
     socket.on("user_left", onUserLeft);
+    socket.on("media_state", onMediaState);
 
     // Si el socket ya está conectado al montar (reuso), unirnos ya mismo.
     if (socket.connected) {
@@ -242,6 +322,7 @@ export function useChat(roomId: string | undefined): UseChatResult {
       socket.off("receive_message", onReceiveMessage);
       socket.off("user_joined", onUserJoined);
       socket.off("user_left", onUserLeft);
+      socket.off("media_state", onMediaState);
 
       if (socket.connected) {
         socket.emit("leave_room", { roomId });
@@ -256,6 +337,26 @@ export function useChat(roomId: string | undefined): UseChatResult {
       }
     };
   }, [socket, roomId, emitJoin, mergeMessages]);
+
+  // ── publishMediaState: notifica al server un cambio local de mic/cam ──
+  const publishMediaState = useCallback(
+    (state: Partial<MediaState>) => {
+      const prev = lastPublishedMediaRef.current;
+      const next: MediaState = {
+        micOn: typeof state.micOn === "boolean" ? state.micOn : prev.micOn,
+        camOn: typeof state.camOn === "boolean" ? state.camOn : prev.camOn,
+      };
+      lastPublishedMediaRef.current = next;
+      if (socket && socket.connected && roomId) {
+        socket.emit("media_state", {
+          roomId,
+          micOn: next.micOn,
+          camOn: next.camOn,
+        });
+      }
+    },
+    [socket, roomId]
+  );
 
   // ── leaveRoom explícito (para llamar antes de navegar) ─────────────────
   const leaveRoom = useCallback((): Promise<void> => {
@@ -303,5 +404,7 @@ export function useChat(roomId: string | undefined): UseChatResult {
     presentUsers,
     sendMessage,
     leaveRoom,
+    mediaStates,
+    publishMediaState,
   };
 }

@@ -166,13 +166,11 @@ export function useChat(roomId: string | undefined): UseChatResult {
     if (!roomId) return;
 
     let active = true;
-    let socket: Socket | null = null;
     setStatus("connecting");
 
     connectSocket()
       .then((s) => {
         if (!active) return;
-        socket = s;
         socketRef.current = s;
 
         // Listeners de transporte

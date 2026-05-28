@@ -57,11 +57,13 @@ export default function RegisterPage() {
   const [googleUsernameError, setGoogleUsernameError] = useState("");
 
   const [loading, setLoading] = useState(false);
+  const isManualRegisteringRef = useRef(false);
 
   // Si el usuario llegó aquí autenticado con Google pero sin perfil
   // (redirigido desde /login), mostramos el modal de completar registro.
+  // Ignoramos el estado transitorio que ocurre durante el registro manual.
   useEffect(() => {
-    if (authUser && !authUser.username) {
+    if (authUser && !authUser.username && !isManualRegisteringRef.current) {
       setShowGoogleModal(true);
     }
   }, [authUser]);
@@ -83,7 +85,7 @@ export default function RegisterPage() {
   function validateAll(): boolean {
     let valid = true;
     if (avatar === null) { setAvatarError("Elige un avatar"); valid = false; } else setAvatarError("");
-    if (!fullName.trim()) { setFullNameError("Ingresa tu nombre completo"); valid = false; } else setFullNameError("");
+    if (!fullName.trim() || fullName.trim().length < 3) { setFullNameError("El nombre debe tener al menos 3 caracteres"); valid = false; } else setFullNameError("");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailError("Ingresa un correo electrónico válido"); valid = false; } else setEmailError("");
     if (!USERNAME_REGEX.test(username)) { setUsernameError("Entre 4 y 10 caracteres"); valid = false; } else setUsernameError("");
     if (usernameStatus === "taken") { setUsernameError("Username ya existe"); valid = false; }
@@ -108,6 +110,7 @@ export default function RegisterPage() {
     if (!validateAll()) return;
     if (usernameStatus === "checking") return;
     setLoading(true);
+    isManualRegisteringRef.current = true;
     try {
       await register(email, password, username, fullName, AVATARS[avatar!]);
       show("success", "¡Cuenta creada exitosamente!");
@@ -116,6 +119,7 @@ export default function RegisterPage() {
       setGlobalError("Ocurrió un error de conexión, inténtalo nuevamente");
     } finally {
       setLoading(false);
+      isManualRegisteringRef.current = false;
     }
   }
 

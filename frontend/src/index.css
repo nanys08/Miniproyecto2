@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Ocultar botón nativo del navegador para mostrar contraseña (Edge/IE) */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
 /* ─────────────────────────────────────────────
    Accesibilidad base (WCAG 2.2)
    ───────────────────────────────────────────── */

@@ -173,8 +173,14 @@ export default function ProfilePage() {
   function validateForm(): boolean {
     const errors: FieldErrors = {};
 
-    if (!fullName.trim()) {
-      errors.fullName = "El nombre completo es obligatorio";
+    if (!fullName.trim() || fullName.trim().length < 3) {
+      errors.fullName = "El nombre completo debe tener al menos 3 caracteres";
+    }
+    if (phone.trim()) {
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length < 7 || digits.length > 15) {
+        errors.phone = "El teléfono debe tener entre 7 y 15 dígitos";
+      }
     }
     if (!USERNAME_REGEX.test(username)) {
       errors.username = "Entre 4 y 10 caracteres: letras, números, punto y guion bajo";
@@ -418,8 +424,12 @@ export default function ProfilePage() {
                   type="tel"
                   autoComplete="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  hint="Opcional"
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    if (fieldErrors.phone) setFieldErrors((p) => ({ ...p, phone: undefined }));
+                  }}
+                  hint={!fieldErrors.phone ? "Opcional" : undefined}
+                  error={fieldErrors.phone}
                   disabled={saveStatus === "loading"}
                 />
               </div>

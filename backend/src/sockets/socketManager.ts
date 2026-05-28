@@ -395,8 +395,16 @@ export const initSocket = (io: Server): void => {
           io.to(roomId).emit("receive_message", message);
           safeAck(ack, { ok: true, data: message });
         } catch (err) {
-          logger.error("send_message: error persistiendo", err);
-          safeAck(ack, { ok: false, error: ErrorCode.INTERNAL_ERROR });
+          if (err instanceof AppError) {
+            safeAck(ack, {
+              ok: false,
+              error: err.code,
+              message: err.message,
+            });
+          } else {
+            logger.error("send_message: error persistiendo", err);
+            safeAck(ack, { ok: false, error: ErrorCode.INTERNAL_ERROR });
+          }
         }
       }
     );

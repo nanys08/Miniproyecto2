@@ -16,10 +16,12 @@ import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import Button from "@/components/Button";
-import Loader from "@/components/Loader";
+import ErrorState from "@/components/ErrorState";
+import { RoomCardSkeleton } from "@/components/Skeleton";
 import CreateRoomModal from "@/components/rooms/CreateRoomModal";
 import JoinRoomModal from "@/components/rooms/JoinRoomModal";
 import { listMyRooms, type Room } from "@/services/rooms";
+import { friendlyError, type FriendlyError } from "@/services/apiErrors";
 
 type LoadState = "loading" | "ready" | "error";
 
@@ -31,6 +33,7 @@ export default function DashboardPage() {
 
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [loadError, setLoadError] = useState<FriendlyError | null>(null);
   const [openCreate, setOpenCreate] = useState(false);
   const [openJoin, setOpenJoin] = useState(false);
 
@@ -41,8 +44,10 @@ export default function DashboardPage() {
     try {
       const list = await listMyRooms();
       setRooms(list);
+      setLoadError(null);
       setLoadState("ready");
-    } catch {
+    } catch (err) {
+      setLoadError(friendlyError(err));
       setLoadState("error");
     }
   }, []);
@@ -124,23 +129,36 @@ export default function DashboardPage() {
         </h2>
 
         {loadState === "loading" && (
-          <div className="py-10">
-            <Loader label="Cargando tus salas" />
-          </div>
+          <ul
+            aria-busy="true"
+            aria-label="Cargando tus salas"
+            className="grid gap-4 sm:grid-cols-2"
+          >
+            {[0, 1, 2, 3].map((i) => (
+              <li key={i}>
+                <RoomCardSkeleton />
+              </li>
+            ))}
+          </ul>
         )}
 
-        {loadState === "error" && (
-          <div
-            role="alert"
-            className="flex flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-6 py-10 text-center"
-          >
-            <p className="text-sm font-medium text-red-800">
-              No se pudieron cargar tus salas.
-            </p>
-            <Button variant="secondary" size="sm" onClick={() => { setLoadState("loading"); void fetchRooms(); }}>
-              Reintentar
-            </Button>
-          </div>
+        {loadState === "error" && loadError && (
+          <ErrorState
+            kind={loadError.kind}
+            title={loadError.title}
+            message={loadError.message}
+            actionLabel={loadError.retriable ? "Reintentar" : undefined}
+            onAction={
+              loadError.retriable
+                ? () => {
+                    setLoadState("loading");
+                    setLoadError(null);
+                    void fetchRooms();
+                  }
+                : undefined
+            }
+            variant="inline"
+          />
         )}
 
         {loadState === "ready" && rooms.length === 0 && <EmptyState />}

@@ -94,6 +94,7 @@ const router = Router();
  *           - `MISSING_FIELDS`
  *           - `USERNAME_INVALID`
  *           - `USERNAME_FORBIDDEN`
+ *           - `FULLNAME_INVALID` — `fullName` con menos de 3 caracteres (trim).
  *           - `PROVIDER_INVALID`
  *         content:
  *           application/json:
@@ -202,9 +203,11 @@ router.post("/register", verifyToken, authController.register);
  *       400:
  *         description: |
  *           Validación falló. Códigos posibles:
- *           - `MISSING_FIELDS` — ningún campo editable presente, o `fullName` vacío.
+ *           - `MISSING_FIELDS` — ningún campo editable presente en el body.
  *           - `USERNAME_INVALID` — `username` no cumple regex 4-10.
  *           - `USERNAME_FORBIDDEN` — `username` contiene palabra prohibida.
+ *           - `FULLNAME_INVALID` — `fullName` con menos de 3 caracteres (trim).
+ *           - `PHONE_INVALID` — `phone` no vacío con menos de 7 o más de 15 dígitos.
  *         content:
  *           application/json:
  *             schema:

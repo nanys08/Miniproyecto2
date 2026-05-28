@@ -15,13 +15,59 @@ const options: swaggerJsdoc.Options = {
     openapi: "3.0.3",
     info: {
       title: "Salón de Estudio Colaborativo — Backend API",
-      version: "1.0.0",
-      description:
-        "API REST del backend del Mini-proyecto 2 (Sprint 1-2). " +
-        "Cubre autenticación con Firebase, gestión de perfiles, salas de " +
-        "estudio y validación de username/email. " +
-        "Los flujos de tiempo real (chat, presencia, WebRTC) se documentan " +
-        "aparte en `docs/sockets.md`.",
+      version: "1.2.0",
+      description: `
+API REST + Socket.IO del backend de **EstudioColab** (Mini-proyecto 2).
+
+## Dominios cubiertos
+
+* **Auth** — Registro y perfil del usuario autenticado (Firebase ID Token).
+* **Users** — Lectura del perfil **público** de cualquier usuario (whitelist).
+* **Rooms** — Crear, listar, unirse y eliminar salas; historial de mensajes.
+* **Tiempo real** — Chat y presencia vía Socket.IO (ver sección "Socket.IO").
+
+## Autenticación
+
+Salvo las rutas marcadas como **público**, todas exigen el header:
+
+\`Authorization: Bearer <Firebase ID Token>\`
+
+El cliente obtiene el token con \`signInWithEmailAndPassword\` o
+\`signInWithPopup\` del SDK de Firebase. El backend lo valida con
+\`admin.auth().verifyIdToken(...)\`.
+
+## Errores
+
+Todos los errores responden con el esquema [\`Error\`](#/components/schemas/Error)
+(\`{ error: <CODE>, message: <texto> }\`). Los códigos son estables; el
+\`message\` está en español listo para mostrar al usuario. **No se filtran
+detalles internos** (mensajes originales de Firebase, paths, stack).
+
+Errores de Firestore (\`permission-denied\`, \`not-found\`, \`unavailable\`)
+se normalizan vía \`mapFirestoreError()\` antes de responder.
+
+## Socket.IO — eventos
+
+Conexión: \`io(SOCKET_URL, { auth: { token } })\` (mismo token Firebase).
+
+| Evento | Dirección | Payload | Comportamiento |
+|---|---|---|---|
+| \`join_room\` | client → server (ack) | \`{ roomId, limit? }\` | Ack \`{ ok, data: { room, messages, members } }\`. Añade al usuario a \`participants\`. |
+| \`leave_room\` | client → server (ack) | \`{ roomId }\` | Ack \`{ ok }\`. No quita la membresía persistida — solo libera la presencia. |
+| \`send_message\` | client → server (ack) | \`{ roomId, content }\` | Sanitiza, persiste y broadcast. Ack \`{ ok, data: Message }\`. |
+| \`receive_message\` | server → room | \`Message\` | Mensaje nuevo en la sala. |
+| \`user_joined\` | server → room | \`{ uid, username, avatar?, micOn, camOn, roomId }\` | Otro usuario entró. |
+| \`user_left\` | server → room | \`{ uid, username, roomId }\` | Otro usuario salió. |
+| \`media_state\` | bidir | \`{ roomId, micOn, camOn }\` | Estado del mic/cam de un participante. |
+
+Ack contract: \`{ ok: true, data? } | { ok: false, error: <CODE>, message? }\`.
+
+## Reglas Firestore
+
+El backend bypasea las reglas (Admin SDK), pero estas viven en
+\`firestore.rules\` como red de seguridad para clientes que intenten
+hablar directamente con Firestore.
+`,
     },
     servers: [
       {
@@ -44,11 +90,21 @@ const options: swaggerJsdoc.Options = {
           "El backend solo verifica los ID Tokens emitidos por el cliente.",
       },
       {
+        name: "Users",
+        description:
+          "Lectura del **perfil público** de cualquier usuario por uid. " +
+          "Útil para resolver el avatar/username de los demás participantes " +
+          "de una sala. Solo expone campos seguros (uid, username, avatar, " +
+          "displayName) — nunca email ni teléfono.",
+      },
+      {
         name: "Rooms",
         description:
           "Gestión de salas de estudio. Todas las rutas requieren Firebase ID Token. " +
           "Los IDs de sala son generados automáticamente por Firestore (20 chars). " +
-          "Solo el dueño (`ownerId`) puede eliminar su propia sala.",
+          "Solo el dueño (`ownerId`) puede eliminar su propia sala. " +
+          "El listado `GET /api/rooms` incluye salas propias **y** salas a las " +
+          "que el usuario se unió (`participants` contiene su uid).",
       },
       {
         name: "Health",
@@ -134,6 +190,20 @@ const options: swaggerJsdoc.Options = {
                 "Vale `\"Univalle\"` si `isUnivalle` es `true`, " +
                 "`\"No identificado\"` en otro caso.",
             },
+          },
+        },
+        PublicUser: {
+          type: "object",
+          required: ["uid", "username", "avatar"],
+          description:
+            "Subconjunto **seguro** del perfil del usuario, devuelto por " +
+            "`GET /api/users/:uid`. Whitelist explícita: nunca incluye " +
+            "email ni teléfono, aunque el doc Firestore los tenga.",
+          properties: {
+            uid: { type: "string", example: "abc123" },
+            username: { type: "string", example: "juanp" },
+            displayName: { type: "string", example: "Juan Pérez" },
+            avatar: { type: "string", example: "/avatars/avatar1.png" },
           },
         },
         UnivalleResponse: {
@@ -399,13 +469,31 @@ const options: swaggerJsdoc.Options = {
         InternalError: {
           description:
             "Error interno del servidor. El detalle queda en logs; el " +
-            "cliente solo recibe el código.",
+            "cliente solo recibe el código. Si la causa es Firestore " +
+            "(`permission-denied`/`unavailable`), `mapFirestoreError()` " +
+            "puede devolver `503` con mensaje 'Servicio temporalmente no " +
+            "disponible' en vez de 500.",
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/Error" },
               example: {
                 error: "INTERNAL_ERROR",
                 message: "Error interno del servidor",
+              },
+            },
+          },
+        },
+        Forbidden: {
+          description:
+            "Acción no permitida para el solicitante (no es dueño / no es " +
+            "miembro / etc.). El cliente debería tratarlo como un " +
+            "`FORBIDDEN` en su mapper de errores y mostrar 'No tienes acceso'.",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Error" },
+              example: {
+                error: "INTERNAL_ERROR",
+                message: "No eres miembro de esta sala",
               },
             },
           },

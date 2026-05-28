@@ -14,6 +14,7 @@ import Button from "@/components/Button";
 import { cn } from "@/utils/cn";
 import { joinRoomByCode, type Room } from "@/services/rooms";
 import { ApiError } from "@/services/api";
+import { friendlyError } from "@/services/apiErrors";
 
 type Status = "idle" | "loading" | "error";
 
@@ -55,9 +56,10 @@ export default function JoinRoomModal({ open, onClose, onJoined }: JoinRoomModal
     } catch (err) {
       setStatus("error");
       if (err instanceof ApiError && err.status === 404) {
+        // Mensaje específico — el genérico "No encontrado" no aporta contexto.
         setError("No existe ninguna sala con ese código");
       } else {
-        setError("No fué posible unirse a la sala. Inténtalo de nuevo.");
+        setError(friendlyError(err).message);
       }
     }
   }

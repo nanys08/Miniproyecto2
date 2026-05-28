@@ -116,3 +116,56 @@ export const buildError = (
   error: code,
   message: message ?? DEFAULT_MESSAGES[code],
 });
+
+/**
+ * Convierte un error del Admin SDK de Firestore (o de Firebase Admin)
+ * en un `AppError` controlado. Devuelve `null` si no reconoce el código —
+ * en ese caso, el llamador debe tratarlo como `INTERNAL_ERROR` (catch-all).
+ *
+ * Códigos de Firestore: ver
+ *   https://firebase.google.com/docs/reference/admin/node/firebase-admin.firestore
+ *
+ * El objetivo es no filtrar el mensaje original al cliente (puede contener
+ * paths internos, project ID, etc.) y al mismo tiempo distinguir fallos
+ * temporales (503) de errores de cliente (400/404).
+ */
+export const mapFirestoreError = (err: unknown): AppError | null => {
+  if (!err || typeof err !== "object") return null;
+  const code = (err as { code?: string | number }).code;
+
+  // permission-denied — Las reglas Firestore (no Admin SDK) rechazaron la
+  // operación. Con Admin SDK no debería ocurrir, pero si llega indica un
+  // problema serio de IAM. No exponemos el detalle al cliente.
+  if (code === "permission-denied" || code === 7) {
+    return new AppError(
+      ErrorCode.INTERNAL_ERROR,
+      500,
+      "Acceso denegado por reglas de seguridad"
+    );
+  }
+
+  // not-found — Documento no existe. Mapeamos a 404 con un mensaje
+  // genérico; el llamador puede sobrescribir el código si tiene contexto.
+  if (code === "not-found" || code === 5) {
+    return new AppError(ErrorCode.PROFILE_NOT_FOUND, 404);
+  }
+
+  // unavailable / deadline-exceeded — Firestore caído o lento. 503 para
+  // que el cliente sepa que es transitorio y pueda reintentar.
+  if (
+    code === "unavailable" ||
+    code === "deadline-exceeded" ||
+    code === 14 ||
+    code === 4
+  ) {
+    return new AppError(
+      ErrorCode.INTERNAL_ERROR,
+      503,
+      "Servicio temporalmente no disponible. Inténtalo de nuevo."
+    );
+  }
+
+  // Otros códigos (aborted, internal, resource-exhausted, etc.) los
+  // dejamos pasar al catch-all → INTERNAL_ERROR genérico.
+  return null;
+};

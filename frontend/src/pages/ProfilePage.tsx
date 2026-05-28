@@ -28,6 +28,7 @@ import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { api, ApiError } from "@/services/api";
+import { friendlyError } from "@/services/apiErrors";
 import Input from "@/components/Input";
 import Button from "@/components/Button";
 import Avatar from "@/components/Avatar";
@@ -241,10 +242,13 @@ export default function ProfilePage() {
           setFieldErrors({ [mapped.field]: mapped.message });
           setGlobalError("Algunos campos son incorrectos. Revísalos antes de continuar.");
         } else {
-          setGlobalError("No se pudieron guardar los cambios. Inténtalo de nuevo.");
+          // No es un error de campo conocido — convertimos el ApiError en
+          // un mensaje friendly (sesión expirada, sin conexión, 5xx, etc.)
+          // para que el usuario sepa qué pasó sin ver un código técnico.
+          setGlobalError(friendlyError(err).message);
         }
       } else {
-        setGlobalError("Error de conexión. Verifica tu red e inténtalo de nuevo.");
+        setGlobalError(friendlyError(err).message);
       }
     }
   }
@@ -262,8 +266,8 @@ export default function ProfilePage() {
       // El toast es global (ToastProvider en la raíz), persiste tras navegar.
       show("success", "Tu cuenta se eliminó correctamente");
       navigate("/login", { replace: true });
-    } catch {
-      setDeleteError("No se pudo eliminar la cuenta. Inténtalo de nuevo.");
+    } catch (err) {
+      setDeleteError(friendlyError(err).message);
       setDeleteLoading(false);
     }
   }

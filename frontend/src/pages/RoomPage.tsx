@@ -23,14 +23,17 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { getRoom, type Room } from "@/services/rooms";
 import { getPublicUser, type PublicUser } from "@/services/users";
+import { friendlyError, type FriendlyError } from "@/services/apiErrors";
 import ChatPanel from "@/components/room/ChatPanel";
 import ConnectionBadge from "@/components/room/ConnectionBadge";
+import ErrorState from "@/components/ErrorState";
+import Loader from "@/components/Loader";
 import Avatar from "@/components/Avatar";
 
 /** Cuántos tiles vacíos rellenamos para mantener el grid 2x2. */
@@ -60,22 +63,25 @@ export default function RoomPage() {
 
   // ── Cargar metadatos de la sala ─────────────────────────────────────────
   const [room, setRoom] = useState<Room | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<FriendlyError | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!roomId) return;
     let alive = true;
+    setLoadError(null);
+    setRoom(null);
     getRoom(roomId)
       .then((r) => {
         if (alive) setRoom(r);
       })
-      .catch(() => {
-        if (alive) setLoadError("No se pudo cargar la sala.");
+      .catch((err) => {
+        if (alive) setLoadError(friendlyError(err));
       });
     return () => {
       alive = false;
     };
-  }, [roomId]);
+  }, [roomId, reloadKey]);
 
   // ── Suscribirse al chat ─────────────────────────────────────────────────
   const {
@@ -259,15 +265,32 @@ export default function RoomPage() {
       <main
         id="main-content"
         tabIndex={-1}
-        className="mx-auto flex max-w-2xl flex-1 flex-col items-center justify-center p-8 text-center"
+        className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center p-6"
       >
-        <h1 className="text-xl font-semibold">{loadError}</h1>
-        <Link
-          to="/dashboard"
-          className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          Volver al dashboard
-        </Link>
+        <ErrorState
+          kind={loadError.kind}
+          title={loadError.title}
+          message={loadError.message}
+          actionLabel={loadError.retriable ? "Reintentar" : undefined}
+          onAction={
+            loadError.retriable ? () => setReloadKey((k) => k + 1) : undefined
+          }
+          secondaryLabel="Volver al dashboard"
+          onSecondary={() => navigate("/dashboard")}
+        />
+      </main>
+    );
+  }
+
+  // Mientras carga la sala antes de mostrar el grid + chat.
+  if (!room) {
+    return (
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center p-6"
+      >
+        <Loader label="Cargando sala" />
       </main>
     );
   }

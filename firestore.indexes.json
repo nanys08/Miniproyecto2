@@ -1,0 +1,5 @@
+{
+  "//": "Índices Firestore — todas las queries actuales usan solo single-field where + orderBy, que Firestore indexa automáticamente. Si en el futuro se añade una query compuesta (p. ej. where + orderBy en campos distintos), agregar el índice aquí. Mantener la lista pequeña reduce costo y latencia de escritura.",
+  "indexes": [],
+  "fieldOverrides": []
+}

@@ -11,6 +11,7 @@
 import { db } from "../config/firebase";
 import { Message, MESSAGES_SUBCOLLECTION } from "../models/Message";
 import { ROOMS_COLLECTION } from "../models/Room";
+import { AppError, ErrorCode } from "../utils/errors";
 import { logger } from "../utils/logger";
 
 /** Tamaño por defecto del historial devuelto al entrar a una sala. */
@@ -48,6 +49,34 @@ export const saveMessage = async (params: {
   type?: "text" | "system";
 }): Promise<Message> => {
   const { roomId, senderUid, senderUsername, content, type = "text" } = params;
+
+  // ── Validación defensiva (consistencia de datos) ──────────────────────
+  // El handler de socket ya valida shape y membresía, pero protegemos
+  // aquí también para que la capa de datos no acepte mensajes huérfanos
+  // si un día se llama desde otro punto.
+  if (
+    typeof roomId !== "string" ||
+    !roomId.trim() ||
+    typeof senderUid !== "string" ||
+    !senderUid.trim() ||
+    typeof content !== "string" ||
+    !content.trim() ||
+    content.length > MAX_MESSAGE_LENGTH
+  ) {
+    throw new AppError(ErrorCode.MISSING_FIELDS, 400);
+  }
+
+  // Verificamos que la sala existe. Sin esto, un bug aguas arriba podría
+  // crear una subcolección `rooms/<inexistente>/messages/...` huérfana
+  // que el cliente nunca podría leer (y que no se limpia con cascade).
+  const roomDoc = await db
+    .collection(ROOMS_COLLECTION)
+    .doc(roomId)
+    .get();
+  if (!roomDoc.exists) {
+    throw new AppError(ErrorCode.ROOM_NOT_FOUND, 404);
+  }
+
   const docRef = messagesRef(roomId).doc();
   const message: Message = {
     id: docRef.id,

@@ -269,11 +269,7 @@ router.delete("/:roomId", verifyToken, roomController.deleteRoom);
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: El usuario no es miembro de la sala.
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
  *         description: Sala no encontrada.
  *         content:

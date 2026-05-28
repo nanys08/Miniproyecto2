@@ -12,13 +12,19 @@
 import { Response } from "express";
 import { AuthRequest } from "../middlewares/authMiddleware";
 import * as authService from "../services/authService";
-import { AppError, ErrorCode, buildError } from "../utils/errors";
+import { AppError, ErrorCode, buildError, mapFirestoreError } from "../utils/errors";
 import { logger } from "../utils/logger";
 
 /** Centraliza el envío de errores con la misma política que el resto. */
 const sendError = (res: Response, err: unknown, context: string): void => {
   if (err instanceof AppError) {
     res.status(err.status).json(buildError(err.code, err.message));
+    return;
+  }
+  const mapped = mapFirestoreError(err);
+  if (mapped) {
+    logger.warn(`[${context}] Firestore error mapeado`, err);
+    res.status(mapped.status).json(buildError(mapped.code, mapped.message));
     return;
   }
   logger.error(`[${context}] error interno`, err);

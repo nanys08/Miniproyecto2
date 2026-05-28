@@ -42,12 +42,28 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", env: env.nodeEnv });
 });
 
-// Swagger UI — documentación OpenAPI de la API REST
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Swagger UI — documentación OpenAPI de la API REST.
+//
+// Sirve el spec como endpoint JSON y configura la UI para consumirlo vía
+// URL en vez de embeberlo inline. Esto evita un bug conocido de
+// `swagger-ui-express@5.0.1` donde si el spec contiene `$` seguido de
+// ciertos caracteres (p. ej. un backtick tras `^...{4,10}$`), su uso de
+// `String.replace()` interpreta esa secuencia como una back-reference de
+// regex y corta el spec, dejando la UI en blanco.
 app.get("/api/docs.json", (_req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.send(swaggerSpec);
 });
+app.use(
+  "/api/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(undefined, {
+    swaggerOptions: {
+      url: "/api/docs.json",
+    },
+    customSiteTitle: "EstudioColab — API Docs",
+  })
+);
 
 app.use("/api", routes);
 

@@ -22,12 +22,13 @@
  * `useAuth().user.avatar`).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { getRoom, type Room } from "@/services/rooms";
+import { getPublicUser, type PublicUser } from "@/services/users";
 import ChatPanel from "@/components/room/ChatPanel";
 import ConnectionBadge from "@/components/room/ConnectionBadge";
 import Avatar from "@/components/Avatar";
@@ -71,7 +72,65 @@ export default function RoomPage() {
   }, [roomId]);
 
   // ── Suscribirse al chat ─────────────────────────────────────────────────
-  const { status, statusLabel, messages, sendMessage } = useChat(roomId);
+  const { status, statusLabel, messages, sendMessage, presentUsers } =
+    useChat(roomId);
+
+  // ── Cache de perfiles públicos (uid → PublicUser) ─────────────────────
+  // La fuente de verdad para "quién está en la sala" combina dos cosas:
+  //   1. `room.participants` (snapshot REST de quién es miembro).
+  //   2. `presentUsers` del socket (quién acaba de entrar mientras yo estoy).
+  // Para mostrar avatares/usernames de quienes ya estaban en (1), llamamos
+  // a /api/users/:uid; para los que entran por (2) el backend ya manda
+  // avatar+username en el payload, así que evitamos el round-trip.
+  const [profileCache, setProfileCache] = useState<Record<string, PublicUser>>(
+    {}
+  );
+  const fetchingRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!room?.participants || !user) return;
+    room.participants.forEach((uid) => {
+      if (uid === user.uid) return;
+      if (profileCache[uid]) return;
+      if (fetchingRef.current.has(uid)) return;
+      fetchingRef.current.add(uid);
+      getPublicUser(uid)
+        .then((profile) =>
+          setProfileCache((prev) => ({ ...prev, [uid]: profile }))
+        )
+        .catch(() => undefined)
+        .finally(() => fetchingRef.current.delete(uid));
+    });
+  }, [room?.participants, user, profileCache]);
+
+  // Cuando llega un user_joined con avatar, lo metemos al cache (no hace
+  // falta REST). Si no traía avatar, lo pedimos.
+  useEffect(() => {
+    if (!user) return;
+    presentUsers.forEach((p) => {
+      if (p.uid === user.uid) return;
+      if (profileCache[p.uid]?.avatar) return;
+      if (p.avatar) {
+        setProfileCache((prev) => ({
+          ...prev,
+          [p.uid]: {
+            uid: p.uid,
+            username: p.username,
+            avatar: p.avatar,
+          },
+        }));
+        return;
+      }
+      if (fetchingRef.current.has(p.uid)) return;
+      fetchingRef.current.add(p.uid);
+      getPublicUser(p.uid)
+        .then((profile) =>
+          setProfileCache((prev) => ({ ...prev, [p.uid]: profile }))
+        )
+        .catch(() => undefined)
+        .finally(() => fetchingRef.current.delete(p.uid));
+    });
+  }, [presentUsers, user, profileCache]);
 
   // ── Controles locales de micrófono / cámara / pantalla ─────────────────
   // (En este sprint son indicadores visuales; WebRTC viene en TS-03.)
@@ -80,38 +139,64 @@ export default function RoomPage() {
   const [screenOn, setScreenOn] = useState(false);
 
   // ── Participantes en pantalla ──────────────────────────────────────────
+  // Unión de tres fuentes:
+  //   1. `room.participants` (membresía persistida en Firestore).
+  //   2. `presentUsers` (sockets actualmente conectados — incluye usuarios
+  //      que entraron DESPUÉS de que yo cargara la sala).
+  //   3. El propio usuario (siempre incluido aunque la membresía aún no
+  //      esté reflejada en el snapshot REST).
+  //
+  // Para cada uid no propio, intentamos resolver `username` y `avatar`:
+  //   - Primero del cache de perfiles (REST + payload del user_joined).
+  //   - Si todavía no hay datos, usamos un placeholder con las iniciales
+  //     del uid (poco probable, solo durante el primer fetch).
   const participants = useMemo(() => {
-    const list = [] as Array<{
-      uid: string;
-      username: string;
-      avatar?: string;
-      isOwner?: boolean;
-      isYou?: boolean;
-    }>;
+    const map = new Map<
+      string,
+      {
+        uid: string;
+        username: string;
+        avatar?: string;
+        isOwner?: boolean;
+        isYou?: boolean;
+        online?: boolean;
+      }
+    >();
+
+    const presentSet = new Set(presentUsers.map((p) => p.uid));
+
+    // 1. Usuario actual primero (su tile aparece como "Tú")
     if (user) {
-      list.push({
+      map.set(user.uid, {
         uid: user.uid,
         username: user.username || user.displayName || "Tú",
         avatar: user.avatar,
         isOwner: room?.ownerId === user.uid,
         isYou: true,
+        online: true,
       });
     }
-    // Otros UIDs de participantes (sin avatar conocido aún) — sprint TS-03
-    // resolverá perfiles vía endpoint de batch lookup.
-    if (room?.participants) {
-      room.participants
-        .filter((uid) => uid !== user?.uid)
-        .forEach((uid) =>
-          list.push({
-            uid,
-            username: `Usuario ${uid.slice(0, 6)}`,
-            isOwner: room.ownerId === uid,
-          })
-        );
-    }
-    return list;
-  }, [user, room]);
+
+    const addOther = (uid: string) => {
+      if (uid === user?.uid) return;
+      if (map.has(uid)) return;
+      const profile = profileCache[uid];
+      map.set(uid, {
+        uid,
+        username: profile?.username || `Usuario ${uid.slice(0, 6)}`,
+        avatar: profile?.avatar,
+        isOwner: room?.ownerId === uid,
+        online: presentSet.has(uid),
+      });
+    };
+
+    // 2. Quienes ya son miembros según Firestore
+    room?.participants?.forEach(addOther);
+    // 3. Sockets presentes que aún no aparecen en el snapshot REST
+    presentUsers.forEach((p) => addOther(p.uid));
+
+    return Array.from(map.values());
+  }, [user, room, presentUsers, profileCache]);
 
   // ── Controles de la barra inferior ─────────────────────────────────────
   const controls: ToggleControl[] = [

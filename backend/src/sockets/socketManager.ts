@@ -72,6 +72,7 @@ const safeAck = <T>(ack: unknown, response: AckResponse<T>): void => {
 interface ConnectedUser {
   uid: string;
   username: string;
+  avatar?: string;
   roomId?: string;
 }
 const connectedUsers = new Map<string, ConnectedUser>();
@@ -128,8 +129,9 @@ export const initSocket = (io: Server): void => {
       return null;
     });
     const username = profile?.username || "Anónimo";
+    const avatar = profile?.avatar;
 
-    connectedUsers.set(socket.id, { uid, username });
+    connectedUsers.set(socket.id, { uid, username, avatar });
 
     // Marcar online solo si el perfil existe (evita update sobre doc inexistente)
     if (profile) {
@@ -186,15 +188,22 @@ export const initSocket = (io: Server): void => {
           }
 
           socket.join(roomId);
-          connectedUsers.set(socket.id, { uid, username, roomId });
+          connectedUsers.set(socket.id, { uid, username, avatar, roomId });
 
           // Historial para soportar reconexión: el cliente lo pinta antes
           // de empezar a escuchar `receive_message`. Lo devolvemos en el
           // ack en vez de emitir un evento aparte → menos race-conditions.
           const messages = await messageService.getRoomMessages(roomId, limit);
 
-          // Notificar al resto de la sala.
-          socket.to(roomId).emit("user_joined", { uid, username, roomId });
+          // Notificar al resto de la sala. Incluimos `avatar` para que el
+          // cliente pueda pintar la tarjeta del nuevo participante sin un
+          // round-trip extra a /api/users/:uid.
+          socket.to(roomId).emit("user_joined", {
+            uid,
+            username,
+            avatar,
+            roomId,
+          });
 
           safeAck(ack, {
             ok: true,

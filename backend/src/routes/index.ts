@@ -1,13 +1,12 @@
 import { Router } from "express";
 import authRoutes from "./authRoutes";
 import roomRoutes from "./roomRoutes";
+import userRoutes from "./userRoutes";
 
 const router = Router();
 
 router.use("/auth", authRoutes);
 router.use("/rooms", roomRoutes);
-
-// Sprint 1+ — rutas a agregar
-// router.use("/messages", messageRoutes);
+router.use("/users", userRoutes);
 
 export default router;

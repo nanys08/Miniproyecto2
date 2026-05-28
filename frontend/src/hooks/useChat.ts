@@ -36,7 +36,16 @@ export type ChatStatus =
 export interface PresenceEvent {
   uid: string;
   username: string;
+  /** Avatar del usuario (lo incluye el backend desde el sprint actual). */
+  avatar?: string;
   roomId: string;
+}
+
+/** Usuarios actualmente conectados a la sala según user_joined/user_left. */
+export interface PresentUser {
+  uid: string;
+  username: string;
+  avatar?: string;
 }
 
 interface UseChatResult {
@@ -48,8 +57,8 @@ interface UseChatResult {
   error: string | null;
   /** Historial + mensajes en vivo, ordenados de más antiguo a más nuevo. */
   messages: Message[];
-  /** UIDs de usuarios presentes en la sala según user_joined/user_left. */
-  presentUids: string[];
+  /** Usuarios presentes en la sala con su avatar/username si está disponible. */
+  presentUsers: PresentUser[];
   /**
    * Envía un mensaje. Devuelve `true` si el server lo confirmó (ack ok),
    * `false` en caso de validación/error de transporte. No lanza.
@@ -77,7 +86,7 @@ export function useChat(roomId: string | undefined): UseChatResult {
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [presentUids, setPresentUids] = useState<string[]>([]);
+  const [presentUsers, setPresentUsers] = useState<PresentUser[]>([]);
   const socketRef = useRef<Socket | null>(null);
   // Guardamos si ya entramos al menos una vez para distinguir el primer
   // connecting de un reconnecting subsiguiente.
@@ -182,12 +191,17 @@ export function useChat(roomId: string | undefined): UseChatResult {
         // Listeners de aplicación
         const onReceiveMessage = (msg: Message) => mergeMessages([msg]);
         const onUserJoined = (evt: PresenceEvent) => {
-          setPresentUids((prev) =>
-            prev.includes(evt.uid) ? prev : [...prev, evt.uid]
+          setPresentUsers((prev) =>
+            prev.some((u) => u.uid === evt.uid)
+              ? prev
+              : [
+                  ...prev,
+                  { uid: evt.uid, username: evt.username, avatar: evt.avatar },
+                ]
           );
         };
         const onUserLeft = (evt: PresenceEvent) => {
-          setPresentUids((prev) => prev.filter((u) => u !== evt.uid));
+          setPresentUsers((prev) => prev.filter((u) => u.uid !== evt.uid));
         };
 
         s.on("connect", onConnect);
@@ -279,7 +293,7 @@ export function useChat(roomId: string | undefined): UseChatResult {
     statusLabel: STATUS_LABELS[status],
     error,
     messages,
-    presentUids,
+    presentUsers,
     sendMessage,
   };
 }

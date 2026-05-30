@@ -105,6 +105,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!auth) { setLoading(false); return; }
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
+        // Punto de verdad de la restricción de acceso: si el correo no es
+        // institucional de Univalle, cerramos la sesión y NUNCA lo dejamos
+        // convertirse en `user`. Esto evita la condición de carrera en la
+        // que un Google ajeno (gmail) alcanzaba a poblar `user` sin username
+        // y disparaba el modal de "completar perfil" en /register.
+        if (!isUnivalleEmail(u.email ?? "")) {
+          await signOut(auth!);
+          setUser(null);
+          setLoading(false);
+          return;
+        }
         const profile = await fetchProfile(u).catch(() => null);
         if (profile) {
           setUser(profile);

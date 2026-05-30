@@ -417,6 +417,7 @@ hablar directamente con Firestore.
                 "USERNAME_FORBIDDEN",
                 "PROVIDER_INVALID",
                 "EMAIL_INVALID",
+                "EMAIL_DOMAIN_FORBIDDEN",
                 "FULLNAME_INVALID",
                 "PHONE_INVALID",
                 "USERNAME_ALREADY_EXISTS",

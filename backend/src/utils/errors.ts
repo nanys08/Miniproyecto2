@@ -28,6 +28,7 @@ export const ErrorCode = {
   USERNAME_FORBIDDEN: "USERNAME_FORBIDDEN",
   PROVIDER_INVALID: "PROVIDER_INVALID",
   EMAIL_INVALID: "EMAIL_INVALID",
+  EMAIL_DOMAIN_FORBIDDEN: "EMAIL_DOMAIN_FORBIDDEN",
   FULLNAME_INVALID: "FULLNAME_INVALID",
   PHONE_INVALID: "PHONE_INVALID",
 
@@ -70,6 +71,8 @@ export const DEFAULT_MESSAGES: Record<ErrorCodeValue, string> = {
   USERNAME_FORBIDDEN: "Ese nombre de usuario no está permitido",
   PROVIDER_INVALID: "provider debe ser 'password' o 'google'",
   EMAIL_INVALID: "Correo electrónico inválido",
+  EMAIL_DOMAIN_FORBIDDEN:
+    "Solo se permiten correos institucionales @correounivalle.edu.co",
   FULLNAME_INVALID: "El nombre completo debe tener al menos 3 caracteres",
   PHONE_INVALID: "El teléfono debe tener exactamente 10 dígitos",
   USERNAME_ALREADY_EXISTS: "El nombre de usuario ya está en uso",

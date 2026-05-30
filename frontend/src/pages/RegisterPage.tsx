@@ -6,11 +6,13 @@ import GoogleButton from "@/components/GoogleButton";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
-import { NeedsUsernameError, googleAuthErrorMessage } from "@/context/AuthContext";
+import { NeedsUsernameError, NotUnivalleError, googleAuthErrorMessage } from "@/context/AuthContext";
 import { api, ApiError } from "@/services/api";
 import {
   USERNAME_REGEX,
   usernameInvalidReason,
+  emailInvalidReason,
+  UNIVALLE_DOMAIN,
 } from "@/utils/validation";
 
 const AVATARS = [
@@ -107,7 +109,8 @@ export default function RegisterPage() {
     let valid = true;
     if (avatar === null) { setAvatarError("Elige un avatar"); valid = false; } else setAvatarError("");
     if (!fullName.trim() || fullName.trim().length < 3) { setFullNameError("El nombre debe tener al menos 3 caracteres"); valid = false; } else setFullNameError("");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailError("Ingresa un correo electrónico válido"); valid = false; } else setEmailError("");
+    const emailReason = emailInvalidReason(email);
+    if (emailReason) { setEmailError(emailReason); valid = false; } else setEmailError("");
     if (!USERNAME_REGEX.test(username)) { setUsernameError("Entre 4 y 10 caracteres"); valid = false; } else setUsernameError("");
     if (usernameStatus === "taken") { setUsernameError("Username ya existe"); valid = false; }
     const hasMin = password.length >= 8;
@@ -146,8 +149,13 @@ export default function RegisterPage() {
       navigate("/dashboard", { replace: true });
     } catch (err) {
       // Mapear códigos del backend a errores de campo (defensa en profundidad)
-      if (err instanceof ApiError) {
+      if (err instanceof NotUnivalleError) {
+        setEmailError(`Solo se permiten correos institucionales @${UNIVALLE_DOMAIN}`);
+      } else if (err instanceof ApiError) {
         switch (err.message) {
+          case "EMAIL_DOMAIN_FORBIDDEN":
+            setEmailError(`Solo se permiten correos institucionales @${UNIVALLE_DOMAIN}`);
+            break;
           case "FULLNAME_INVALID":
             setFullNameError("El nombre debe tener al menos 3 caracteres");
             break;
@@ -180,7 +188,9 @@ export default function RegisterPage() {
       show("success", "Inicio de sesión exitoso");
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      if (err instanceof NeedsUsernameError) {
+      if (err instanceof NotUnivalleError) {
+        setGlobalError(`Solo se permiten correos institucionales @${UNIVALLE_DOMAIN}`);
+      } else if (err instanceof NeedsUsernameError) {
         // El usuario se autenticó con Google pero no tiene perfil.
         // El useEffect detectará authUser sin username y abrirá el modal.
         setShowGoogleModal(true);
@@ -341,11 +351,12 @@ export default function RegisterPage() {
               <Input
                 label="Correo electrónico"
                 type="email"
-                placeholder="tu@email.com"
+                placeholder={`tu_correo@${UNIVALLE_DOMAIN}`}
                 autoComplete="email"
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); setEmailError(""); }}
                 error={emailError}
+                hint={!emailError ? `Solo correos @${UNIVALLE_DOMAIN}` : undefined}
               />
             </div>
 

@@ -59,6 +59,39 @@ export function usernameInvalidReason(value: string): string | null {
   return null;
 }
 
+// ─── Correo institucional (Univalle) ─────────────────────────────────────
+
+/** Dominio institucional aceptado. Único punto de verdad en el frontend. */
+export const UNIVALLE_DOMAIN = "correounivalle.edu.co";
+
+/** Regex laxa de email (misma que el backend) para validar el formato. */
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * `true` si el correo pertenece al dominio institucional de Univalle.
+ * Compara sin distinguir mayúsculas y tolera espacios en los extremos.
+ * Espeja a `backend/src/utils/univalleEmail.ts` — mantener ambos en sync.
+ */
+export function isUnivalleEmail(email: string): boolean {
+  if (!email || typeof email !== "string") return false;
+  return email.trim().toLowerCase().endsWith("@" + UNIVALLE_DOMAIN);
+}
+
+/**
+ * Razón específica por la que un correo no es válido para registrarse, o
+ * `null` si es un correo institucional válido. Vacío → `null` (aún no
+ * escribe nada). Solo se permiten correos `@correounivalle.edu.co`.
+ */
+export function emailInvalidReason(value: string): string | null {
+  const email = value.trim();
+  if (!email) return null;
+  if (!EMAIL_REGEX.test(email)) return "Ingresa un correo electrónico válido";
+  if (!isUnivalleEmail(email)) {
+    return `Solo se permiten correos institucionales @${UNIVALLE_DOMAIN}`;
+  }
+  return null;
+}
+
 // ─── Teléfono ───────────────────────────────────────────────────────────
 
 /** Longitud requerida (exacta) del teléfono. */

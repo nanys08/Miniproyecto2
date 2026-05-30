@@ -110,6 +110,13 @@ export const register = async (
       res.status(400).json(buildError(ErrorCode.MISSING_FIELDS));
       return;
     }
+    // Restricción de acceso: solo correos institucionales de Univalle pueden
+    // crear perfil. El email sale del ID Token (no del body), así que no es
+    // suplantable. 403 = autenticado en Firebase pero sin permiso de registro.
+    if (!isUnivalleEmail(email || "")) {
+      res.status(403).json(buildError(ErrorCode.EMAIL_DOMAIN_FORBIDDEN));
+      return;
+    }
     if (typeof username !== "string" || !USERNAME_REGEX.test(username)) {
       res.status(400).json(buildError(ErrorCode.USERNAME_INVALID));
       return;

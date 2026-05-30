@@ -6,7 +6,8 @@ import GoogleButton from "@/components/GoogleButton";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
-import { NeedsUsernameError, googleAuthErrorMessage } from "@/context/AuthContext";
+import { NeedsUsernameError, NotUnivalleError, googleAuthErrorMessage } from "@/context/AuthContext";
+import { UNIVALLE_DOMAIN } from "@/utils/validation";
 
 export default function LoginPage() {
   const { login, loginWithGoogle } = useAuth();
@@ -48,7 +49,9 @@ export default function LoginPage() {
       show("success", "Sesión iniciada con Google");
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      if (err instanceof NeedsUsernameError) {
+      if (err instanceof NotUnivalleError) {
+        setError(`Solo se permiten correos institucionales @${UNIVALLE_DOMAIN}`);
+      } else if (err instanceof NeedsUsernameError) {
         // El usuario se autenticó con Google pero aún no tiene perfil.
         // Redirigimos a /register donde podrá elegir su username.
         navigate("/register", { replace: true });

@@ -11,6 +11,7 @@ import {
 import { auth } from "@/services/firebase";
 import { api, ApiError } from "@/services/api";
 import { disconnectSocket } from "@/services/socket";
+import { isUnivalleEmail, UNIVALLE_DOMAIN } from "@/utils/validation";
 import {
   AuthContext,
   type AuthContextValue,
@@ -19,6 +20,18 @@ import {
 
 export class NeedsUsernameError extends Error {
   constructor() { super("needs-username"); }
+}
+
+/**
+ * Se lanza cuando el usuario se autentica con un correo que NO pertenece al
+ * dominio institucional de Univalle. La capa de UI debe mostrar un mensaje
+ * claro y NO continuar con el registro/login.
+ */
+export class NotUnivalleError extends Error {
+  constructor() {
+    super(`Solo se permiten correos institucionales @${UNIVALLE_DOMAIN}`);
+    this.name = "NotUnivalleError";
+  }
 }
 
 /**
@@ -119,6 +132,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async loginWithGoogle() {
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth!, provider);
+        // Restricción de acceso: solo correos institucionales de Univalle.
+        // Si el correo de la cuenta Google no es del dominio, cerramos la
+        // sesión recién abierta y abortamos antes de pedir username.
+        if (!isUnivalleEmail(result.user.email ?? "")) {
+          await signOut(auth!);
+          throw new NotUnivalleError();
+        }
         sessionStorage.setItem("google-displayName", result.user.displayName ?? "");
         const profile = await fetchProfile(result.user).catch(() => null);
         if (!profile) {
@@ -129,6 +149,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
 
       async register(email, password, username, fullName, avatar) {
+        // Restricción de acceso: bloqueamos ANTES de crear la cuenta en
+        // Firebase Auth para no dejar usuarios huérfanos sin perfil.
+        if (!isUnivalleEmail(email)) {
+          throw new NotUnivalleError();
+        }
         await createUserWithEmailAndPassword(auth!, email, password);
         await api.post("/auth/register", { username, fullName, avatar, provider: "password" });
         const firebaseUser = auth!.currentUser;

@@ -120,6 +120,9 @@ export function useChat(roomId: string | undefined): UseChatResult {
   );
   const [socket, setSocket] = useState<Socket | null>(null);
   const everJoinedRef = useRef(false);
+  // Evita el doble `leave_room`: si el usuario salió explícitamente (botón
+  // "Salir de la sala"), la limpieza del efecto ya no vuelve a emitirlo.
+  const leftRef = useRef(false);
   // Último estado de medios que el usuario actual publicó. Lo guardamos
   // para reenviarlo automáticamente tras una reconexión (si el server
   // perdió la sesión, igual sabe nuestro estado).
@@ -324,7 +327,9 @@ export function useChat(roomId: string | undefined): UseChatResult {
       socket.off("user_left", onUserLeft);
       socket.off("media_state", onMediaState);
 
-      if (socket.connected) {
+      // Solo emitir si el usuario NO salió ya explícitamente (evita el doble
+      // `leave_room`: botón "Salir" + limpieza del efecto al desmontar).
+      if (socket.connected && !leftRef.current) {
         socket.emit("leave_room", { roomId });
       }
       setPresentUsers([]);
@@ -365,6 +370,9 @@ export function useChat(roomId: string | undefined): UseChatResult {
         resolve();
         return;
       }
+      // Marcamos la salida explícita para que la limpieza del efecto no
+      // vuelva a emitir `leave_room` (evita el log/evento duplicado).
+      leftRef.current = true;
       // Timeout corto: si el servidor no responde, no bloqueamos la UI.
       const timer = setTimeout(() => resolve(), 1500);
       socket.emit("leave_room", { roomId }, () => {

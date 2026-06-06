@@ -104,6 +104,20 @@ export default function ChatPanel({
     lastCountRef.current = messages.length;
   }, [messages.length]);
 
+  // Saltar al último mensaje al (re)abrir la pestaña de chat o cuando termina
+  // de cargar el historial. La lista se desmonta al pasar a "Participantes",
+  // por lo que sin esto volvería al tope (arriba) al regresar.
+  useEffect(() => {
+    if (tab !== "chat" || historyStatus !== "ready") return;
+    requestAnimationFrame(() => {
+      const el = listRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+      atBottomRef.current = true;
+      setUnread(0);
+    });
+  }, [tab, historyStatus]);
+
   // Mapa uid → avatar para resolver el avatar del autor en cada burbuja.
   const avatarByUid = useMemo(() => {
     const map = new Map<string, string>();

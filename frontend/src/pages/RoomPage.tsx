@@ -147,6 +147,9 @@ export default function RoomPage() {
     onRoomDeleted: handleRoomDeleted,
   });
 
+  // ── Mostrar / ocultar el panel de chat ─────────────────────────────────
+  const [chatVisible, setChatVisible] = useState(true);
+
   // ── Configuración de sala (solo anfitrión) ─────────────────────────────
   // La configuración se abre desde el menú "Más" de la barra inferior.
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -448,7 +451,7 @@ export default function RoomPage() {
       {/* ── Header ───────────────────────────────────────────────────── */}
       <header
         className={cn(
-          "border-b bg-slate-950 transition-colors",
+          "shrink-0 border-b bg-slate-950 transition-colors",
           isReconnectingHeader ? "border-amber-500/30" : "border-slate-800"
         )}
       >
@@ -539,7 +542,7 @@ export default function RoomPage() {
 
       {/* ── Tarea 6: participantes conectados (chat-service) ─────────────── */}
       {livePresence.length > 0 && (
-        <div className="border-b border-slate-800 bg-slate-950/60">
+        <div className="shrink-0 border-b border-slate-800 bg-slate-950/60">
           <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2 px-4 py-2 sm:px-6">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
               Conectados:
@@ -560,15 +563,22 @@ export default function RoomPage() {
       )}
 
       {/* ── Cuerpo: video + chat ────────────────────────────────────────── */}
+      {/* `min-h-0` + `flex-1` permiten que el grid ocupe el alto restante y que
+          el chat haga scroll interno. En móvil la página puede desplazarse
+          (overflow-y-auto); en desktop el alto queda fijo a la ventana. */}
       <main
         id="main-content"
         tabIndex={-1}
-        className="mx-auto grid w-full max-w-[1400px] flex-1 gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[1fr_360px]"
+        className={cn(
+          "mx-auto grid w-full max-w-[1400px] min-h-0 flex-1 gap-4 px-4 py-4 sm:px-6",
+          "overflow-y-auto lg:grid-rows-1 lg:overflow-hidden",
+          chatVisible ? "lg:grid-cols-[1fr_360px]" : "lg:grid-cols-1"
+        )}
       >
         {/* Cuadrícula de video */}
         <section
           aria-labelledby="region-stage"
-          className="flex min-h-[420px] flex-col rounded-2xl bg-slate-950/60 p-3 ring-1 ring-slate-800"
+          className="flex min-h-[420px] flex-col rounded-2xl bg-slate-950/60 p-3 ring-1 ring-slate-800 lg:min-h-0"
         >
           <h2 id="region-stage" className="sr-only">
             Área de video y compartición de pantalla
@@ -608,23 +618,27 @@ export default function RoomPage() {
           </ul>
         </section>
 
-        {/* Panel chat */}
-        <div className="flex min-h-[420px] min-w-0 flex-col lg:max-h-[calc(100vh-200px)]">
-          <ChatPanel
-            currentUid={user?.uid ?? ""}
-            messages={chatMessages}
-            participants={participants}
-            status={chatStatus}
-            reconnected={chatReconnected}
-            historyStatus={historyStatus}
-            onRetryHistory={retryHistory}
-            onSend={sendChatMessage}
-          />
-        </div>
+        {/* Panel chat — se puede ocultar con el botón de la barra inferior.
+            En móvil tiene una altura fija (scroll interno propio); en desktop
+            ocupa todo el alto de la fila. */}
+        {chatVisible && (
+          <div className="flex h-[24rem] min-h-0 min-w-0 flex-col lg:h-full">
+            <ChatPanel
+              currentUid={user?.uid ?? ""}
+              messages={chatMessages}
+              participants={participants}
+              status={chatStatus}
+              reconnected={chatReconnected}
+              historyStatus={historyStatus}
+              onRetryHistory={retryHistory}
+              onSend={sendChatMessage}
+            />
+          </div>
+        )}
       </main>
 
       {/* ── Barra de controles ─────────────────────────────────────────── */}
-      <footer className="border-t border-slate-800 bg-slate-950/80 backdrop-blur">
+      <footer className="shrink-0 border-t border-slate-800 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Controles de la sala">
             {controls.map((c) => {
@@ -711,6 +725,28 @@ export default function RoomPage() {
                 </div>
               )}
             </div>
+
+            {/* Mostrar / ocultar el panel de chat. */}
+            <button
+              type="button"
+              onClick={() => setChatVisible((v) => !v)}
+              aria-pressed={chatVisible}
+              aria-label={chatVisible ? "Ocultar chat" : "Mostrar chat"}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                chatVisible
+                  ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
+                  : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800"
+              )}
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              <span className="hidden sm:inline">
+                {chatVisible ? "Ocultar chat" : "Mostrar chat"}
+              </span>
+            </button>
           </div>
 
           <button

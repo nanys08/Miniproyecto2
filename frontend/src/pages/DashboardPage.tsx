@@ -20,6 +20,7 @@ import ErrorState from "@/components/ErrorState";
 import { RoomCardSkeleton } from "@/components/Skeleton";
 import CreateRoomModal from "@/components/rooms/CreateRoomModal";
 import JoinRoomModal from "@/components/rooms/JoinRoomModal";
+import RoomSettingsModal from "@/components/rooms/RoomSettingsModal";
 import { listMyRooms, type Room } from "@/services/rooms";
 import { friendlyError, type FriendlyError } from "@/services/apiErrors";
 
@@ -36,6 +37,8 @@ export default function DashboardPage() {
   const [loadError, setLoadError] = useState<FriendlyError | null>(null);
   const [openCreate, setOpenCreate] = useState(false);
   const [openJoin, setOpenJoin] = useState(false);
+  /** Sala seleccionada para editar/eliminar (abre el modal de configuración). */
+  const [settingsRoom, setSettingsRoom] = useState<Room | null>(null);
 
   const displayName =
     user?.username ?? user?.displayName ?? user?.email?.split("@")[0] ?? "estudiante";
@@ -60,16 +63,36 @@ export default function DashboardPage() {
     return () => window.removeEventListener("focus", onFocus);
   }, [fetchRooms]);
 
-  // Atajo desde el sidebar: /dashboard?action=create | ?action=join
+  // Atajos desde el sidebar: ?action=create | ?action=join (limpia ?tab también)
   useEffect(() => {
     const action = searchParams.get("action");
-    if (action !== "create" && action !== "join") return;
+    const tab = searchParams.get("tab");
+    if (!action && !tab) return;
     if (action === "create") setOpenCreate(true);
     if (action === "join") setOpenJoin(true);
     const next = new URLSearchParams(searchParams);
     next.delete("action");
+    next.delete("tab");
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
+
+  // El dashboard muestra SOLO mis salas (las que creé): son las que puedo
+  // administrar (editar / eliminar). Las salas a las que solo me uní se
+  // acceden con su código.
+  const isOwner = (room: Room) => !!user && room.ownerId === user.uid;
+  const myRooms = rooms.filter(isOwner);
+
+  function handleRoomUpdated() {
+    setSettingsRoom(null);
+    show("success", "Sala actualizada correctamente");
+    void fetchRooms();
+  }
+
+  function handleRoomDeleted() {
+    setSettingsRoom(null);
+    show("success", "La sala fue eliminada correctamente");
+    void fetchRooms();
+  }
 
   function handleCreated(room: Room) {
     setOpenCreate(false);
@@ -123,10 +146,10 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* ── Salas recientes ── */}
+      {/* ── Mis salas (solo las que creé: editables / eliminables) ── */}
       <section aria-labelledby="recientes-title">
         <h2 id="recientes-title" className="mb-4 text-xl font-bold text-slate-900">
-          Salas recientes
+          Mis salas
         </h2>
 
         {loadState === "loading" && (
@@ -162,13 +185,17 @@ export default function DashboardPage() {
           />
         )}
 
-        {loadState === "ready" && rooms.length === 0 && <EmptyState />}
+        {loadState === "ready" && myRooms.length === 0 && <EmptyState />}
 
-        {loadState === "ready" && rooms.length > 0 && (
+        {loadState === "ready" && myRooms.length > 0 && (
           <ul className="grid gap-4 sm:grid-cols-2">
-            {rooms.map((room) => (
+            {myRooms.map((room) => (
               <li key={room.roomId}>
-                <RoomCard room={room} onEnter={() => navigate(`/room/${room.roomId}`)} />
+                <RoomCard
+                  room={room}
+                  onEnter={() => navigate(`/room/${room.roomId}`)}
+                  onManage={() => setSettingsRoom(room)}
+                />
               </li>
             ))}
           </ul>
@@ -185,6 +212,15 @@ export default function DashboardPage() {
         onClose={() => setOpenJoin(false)}
         onJoined={handleJoined}
       />
+      {settingsRoom && (
+        <RoomSettingsModal
+          open
+          room={settingsRoom}
+          onClose={() => setSettingsRoom(null)}
+          onUpdated={handleRoomUpdated}
+          onDeleted={handleRoomDeleted}
+        />
+      )}
     </div>
   );
 }
@@ -196,11 +232,12 @@ function EmptyState() {
     <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
       <span aria-hidden="true" className="text-4xl">📚</span>
       <p className="text-lg font-bold text-slate-900">
-        ¡Aún no tienes salas activas!
+        Aún no has creado ninguna sala
       </p>
       <p className="max-w-md text-slate-600">
-        Aquí es donde podrás ver tu historial de estudio colaborativo.
-        ¡Crea tu primera sala de estudio o únete a una para empezar!
+        Crea tu primera sala para administrarla desde aquí (editar el nombre o
+        eliminarla). Las salas a las que te unas con un código no aparecen en
+        esta lista.
       </p>
     </div>
   );
@@ -211,9 +248,11 @@ function EmptyState() {
 interface RoomCardProps {
   room: Room;
   onEnter: () => void;
+  /** Abre el modal de configuración (editar nombre / eliminar). */
+  onManage: () => void;
 }
 
-function RoomCard({ room, onEnter }: RoomCardProps) {
+function RoomCard({ room, onEnter, onManage }: RoomCardProps) {
   const participantes = room.participants?.length ?? 0;
   return (
     <div className="flex h-full flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
@@ -248,16 +287,30 @@ function RoomCard({ room, onEnter }: RoomCardProps) {
         </span>
       </p>
 
-      <div className="mt-auto flex items-center justify-between gap-3 pt-1">
+      <div className="mt-auto flex items-center justify-between gap-2 pt-1">
         <span className="inline-flex items-center gap-1.5 text-sm text-slate-600">
           <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
             <path d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6 0a4 4 0 100-8 4 4 0 000 8z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           {participantes} {participantes === 1 ? "participante" : "participantes"}
         </span>
-        <Button size="sm" onClick={onEnter}>
-          Entrar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onManage}
+            aria-label={`Configurar la sala ${room.name} (editar o eliminar)`}
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            <span className="hidden sm:inline">Configurar</span>
+          </Button>
+          <Button size="sm" onClick={onEnter}>
+            Entrar
+          </Button>
+        </div>
       </div>
     </div>
   );

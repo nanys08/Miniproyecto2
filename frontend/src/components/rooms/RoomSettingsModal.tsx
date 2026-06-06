@@ -13,18 +13,35 @@
  * accesible, conserva datos y permite reintentar — US-07 Esc4).
  */
 
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from "react";
 import Modal from "@/components/Modal";
 import Button from "@/components/Button";
+import Avatar from "@/components/Avatar";
+import Loader from "@/components/Loader";
 import { cn } from "@/utils/cn";
 import { updateRoom, deleteRoom, type Room } from "@/services/rooms";
+import { getPublicUser, type PublicUser } from "@/services/users";
 import { ApiError } from "@/services/api";
 import { friendlyError } from "@/services/apiErrors";
 
 const CONFIRM_WORD = "Eliminar";
 const ROOM_NAME_MAX = 100;
 
-type View = "menu" | "edit" | "delete";
+type View = "menu" | "edit" | "delete" | "participants";
+
+/** Participante resuelto para el listado (nombre + avatar por uid). */
+interface MemberInfo {
+  uid: string;
+  username: string;
+  avatar?: string;
+}
 
 interface RoomSettingsModalProps {
   open: boolean;
@@ -61,6 +78,12 @@ export default function RoomSettingsModal({
 
   const [copied, setCopied] = useState(false);
 
+  // Participantes (vista "Ver participantes").
+  const [members, setMembers] = useState<MemberInfo[]>([]);
+  const [membersStatus, setMembersStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+
   // Reset al abrir.
   useEffect(() => {
     if (!open) return;
@@ -73,13 +96,48 @@ export default function RoomSettingsModal({
     setSaving(false);
     setDeleting(false);
     setCopied(false);
+    setMembers([]);
+    setMembersStatus("idle");
   }, [open, room.name, room.description]);
+
+  // Resuelve los uids de `room.participants` a nombre + avatar. Si un perfil
+  // falla, se muestra igualmente con un nombre genérico (no rompe el listado).
+  const loadMembers = useCallback(async () => {
+    const uids = room.participants ?? [];
+    if (uids.length === 0) {
+      setMembers([]);
+      setMembersStatus("ready");
+      return;
+    }
+    setMembersStatus("loading");
+    try {
+      const results = await Promise.all(
+        uids.map(async (uid): Promise<MemberInfo> => {
+          try {
+            const profile: PublicUser = await getPublicUser(uid);
+            return {
+              uid,
+              username: profile.username || profile.displayName || `Usuario ${uid.slice(0, 6)}`,
+              avatar: profile.avatar,
+            };
+          } catch {
+            return { uid, username: `Usuario ${uid.slice(0, 6)}` };
+          }
+        })
+      );
+      setMembers(results);
+      setMembersStatus("ready");
+    } catch {
+      setMembersStatus("error");
+    }
+  }, [room.participants]);
 
   // Foco al input relevante al cambiar de vista (accesibilidad teclado).
   useEffect(() => {
     if (view === "edit") nameRef.current?.focus();
     if (view === "delete") confirmRef.current?.focus();
-  }, [view]);
+    if (view === "participants" && membersStatus === "idle") void loadMembers();
+  }, [view, membersStatus, loadMembers]);
 
   const busy = saving || deleting;
   const canDelete = confirm.trim().toLowerCase() === CONFIRM_WORD.toLowerCase() && !busy;
@@ -152,6 +210,8 @@ export default function RoomSettingsModal({
       ? "Editar sala"
       : view === "delete"
       ? "Eliminar sala"
+      : view === "participants"
+      ? "Participantes"
       : "Configuración de sala";
 
   return (
@@ -183,13 +243,21 @@ export default function RoomSettingsModal({
               />
             </li>
             <li>
-              <div className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-4 py-3 text-sm text-slate-700">
+              <button
+                type="button"
+                onClick={() => setView("participants")}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-lg border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
+                )}
+              >
                 <span aria-hidden="true">👥</span>
                 <span className="flex-1 text-left">Ver participantes</span>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
                   {room.participants?.length ?? 0}
                 </span>
-              </div>
+                <span aria-hidden="true" className="text-slate-400">›</span>
+              </button>
             </li>
             <li>
               <MenuRow
@@ -202,6 +270,76 @@ export default function RoomSettingsModal({
           </ul>
 
           <div className="mt-1 flex justify-end">
+            <Button type="button" variant="secondary" onClick={handleClose}>
+              Cerrar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Vista: participantes ────────────────────────────────────── */}
+      {view === "participants" && (
+        <div className="flex flex-col gap-4">
+          {membersStatus === "loading" && (
+            <div className="py-6">
+              <Loader label="Cargando participantes" />
+            </div>
+          )}
+
+          {membersStatus === "error" && (
+            <div className="flex flex-col items-center gap-3 py-4 text-center">
+              <p role="alert" className="text-sm font-medium text-red-700">
+                No fue posible cargar los participantes.
+              </p>
+              <Button type="button" variant="secondary" onClick={() => void loadMembers()}>
+                Reintentar
+              </Button>
+            </div>
+          )}
+
+          {membersStatus === "ready" && members.length === 0 && (
+            <p className="py-6 text-center text-sm text-slate-500">
+              Esta sala aún no tiene participantes.
+            </p>
+          )}
+
+          {membersStatus === "ready" && members.length > 0 && (
+            <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+              {members.map((m) => {
+                const isOwner = m.uid === room.ownerId;
+                return (
+                  <li
+                    key={m.uid}
+                    className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2"
+                  >
+                    {m.avatar ? (
+                      <img
+                        src={m.avatar}
+                        alt=""
+                        aria-hidden="true"
+                        className="h-9 w-9 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <Avatar name={m.username} size="sm" />
+                    )}
+                    <span className="flex-1 truncate text-sm font-medium text-slate-800">
+                      {m.username}
+                    </span>
+                    {isOwner && (
+                      <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700">
+                        Anfitrión
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <div className="mt-1 flex justify-between">
+            <Button type="button" variant="secondary" onClick={() => setView("menu")}>
+              ← Volver
+            </Button>
             <Button type="button" variant="secondary" onClick={handleClose}>
               Cerrar
             </Button>

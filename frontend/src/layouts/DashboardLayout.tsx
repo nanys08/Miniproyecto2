@@ -172,13 +172,6 @@ export default function DashboardLayout() {
               <Avatar name={displayName} email={user?.email} size="sm" />
               <span className="hidden font-medium sm:inline">@{displayName}</span>
             </NavLink>
-            <NavLink
-              to="/dashboard?action=create"
-              className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-navy"
-            >
-              <span aria-hidden="true">+</span>
-              <span className="hidden sm:inline">Crear sala</span>
-            </NavLink>
           </div>
         </div>
       </header>

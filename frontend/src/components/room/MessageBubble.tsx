@@ -48,7 +48,7 @@ export default function MessageBubble({
   return (
     <li
       className={cn(
-        "flex w-full gap-2",
+        "flex w-full min-w-0 gap-2",
         isOwn ? "justify-end" : "justify-start"
       )}
     >
@@ -75,21 +75,25 @@ export default function MessageBubble({
         </div>
       )}
 
-      <div className={cn("flex max-w-[78%] flex-col", isOwn ? "items-end" : "items-start")}>
+      <div className={cn("flex min-w-0 max-w-[78%] flex-col", isOwn ? "items-end" : "items-start")}>
         {!isOwn && (
-          <span className="mb-0.5 text-xs font-semibold text-slate-600">
+          <span className="mb-0.5 max-w-full truncate text-xs font-semibold text-slate-600">
             {message.senderUsername}
           </span>
         )}
         <div
           className={cn(
-            "rounded-2xl px-3 py-2 text-sm shadow-sm",
+            "max-w-full rounded-2xl px-3 py-2 text-sm shadow-sm",
             isOwn
               ? "rounded-br-sm bg-blue-600 text-white"
               : "rounded-bl-sm bg-slate-100 text-slate-900"
           )}
         >
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          {/* `overflow-wrap:anywhere` rompe palabras/URLs muy largas y reduce el
+              ancho mínimo del contenido, evitando el scroll horizontal. */}
+          <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+            {message.content}
+          </p>
         </div>
         {ts && (
           <span

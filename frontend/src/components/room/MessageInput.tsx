@@ -4,8 +4,9 @@
  * Comportamiento:
  *  - Enter envía; Shift+Enter inserta salto de línea.
  *  - T5: enviar vacío muestra "No puedes enviar mensajes vacíos" (no se envía).
- *  - T6: más de 500 caracteres bloquea el envío con
- *    "El mensaje supera el límite permitido" + contador en rojo.
+ *  - T6: el campo no deja escribir/pegar más de 500 caracteres (`maxLength`);
+ *    al llegar al tope avisa "Alcanzaste el límite de 500 caracteres" con el
+ *    contador en rojo. Como red de seguridad, un texto >500 bloquea el envío.
  *  - T10: mientras envía, el campo y el botón se deshabilitan y se muestra
  *    "Enviando mensaje…".
  *  - Si el envío falla, se conserva el texto para reintentar.
@@ -40,8 +41,12 @@ export default function MessageInput({
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const charCount = value.length;
   const trimmedLength = value.trim().length;
   const overLimit = trimmedLength > MAX_CHAT_MESSAGE_LENGTH;
+  // `maxLength` impide superar el límite al escribir/pegar; `atLimit` activa el
+  // aviso "alcanzaste el límite" cuando el campo llega justo al tope.
+  const atLimit = charCount >= MAX_CHAT_MESSAGE_LENGTH;
   // El botón NO se bloquea por vacío: así un submit vacío muestra el aviso (T5).
   const blocked = disabled || sending || overLimit;
 
@@ -86,9 +91,11 @@ export default function MessageInput({
     void submit();
   }
 
-  const showCounter = trimmedLength >= MAX_CHAT_MESSAGE_LENGTH - 100;
+  const showCounter = charCount >= MAX_CHAT_MESSAGE_LENGTH - 100;
   const describedBy = errorMsg
     ? "chat-input-error"
+    : atLimit
+    ? "chat-input-limit"
     : sending
     ? "chat-input-sending"
     : hint
@@ -119,6 +126,7 @@ export default function MessageInput({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           rows={1}
+          maxLength={MAX_CHAT_MESSAGE_LENGTH}
           disabled={disabled || sending}
           aria-label="Campo de mensaje"
           aria-invalid={overLimit || undefined}
@@ -134,10 +142,10 @@ export default function MessageInput({
             aria-hidden="true"
             className={cn(
               "select-none self-end pb-0.5 text-[11px] tabular-nums",
-              overLimit ? "font-semibold text-red-600" : "text-slate-400"
+              atLimit || overLimit ? "font-semibold text-red-600" : "text-slate-400"
             )}
           >
-            {trimmedLength}/{MAX_CHAT_MESSAGE_LENGTH}
+            {charCount}/{MAX_CHAT_MESSAGE_LENGTH}
           </span>
         )}
         <button
@@ -184,7 +192,17 @@ export default function MessageInput({
           {errorMsg}
         </p>
       )}
-      {!errorMsg && sending && (
+      {!errorMsg && atLimit && (
+        <p
+          id="chat-input-limit"
+          role="status"
+          aria-live="polite"
+          className="px-1 text-xs font-medium text-red-600"
+        >
+          Alcanzaste el límite de {MAX_CHAT_MESSAGE_LENGTH} caracteres.
+        </p>
+      )}
+      {!errorMsg && !atLimit && sending && (
         <p
           id="chat-input-sending"
           aria-live="polite"
@@ -193,7 +211,7 @@ export default function MessageInput({
           Enviando mensaje…
         </p>
       )}
-      {!errorMsg && !sending && hint && (
+      {!errorMsg && !atLimit && !sending && hint && (
         <p id="chat-input-hint" className="px-1 text-xs text-slate-500">
           {hint}
         </p>

@@ -609,7 +609,7 @@ export default function RoomPage() {
         </section>
 
         {/* Panel chat */}
-        <div className="flex min-h-[420px] flex-col lg:max-h-[calc(100vh-200px)]">
+        <div className="flex min-h-[420px] min-w-0 flex-col lg:max-h-[calc(100vh-200px)]">
           <ChatPanel
             currentUid={user?.uid ?? ""}
             messages={chatMessages}

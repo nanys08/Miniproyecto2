@@ -139,7 +139,7 @@ export default function ChatPanel({
   return (
     <section
       aria-labelledby="chat-panel-title"
-      className="flex h-full min-h-0 flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
+      className="flex h-full min-h-0 min-w-0 flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
     >
       {/* Tabs */}
       <div
@@ -204,7 +204,7 @@ export default function ChatPanel({
                   ? "Cargando mensajes"
                   : "Mensajes de la sala"
               }
-              className="flex-1 space-y-3 overflow-y-auto p-4"
+              className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto p-4"
             >
               {/* T4: estado cargando historial. */}
               {historyStatus === "loading" && <HistoryLoading />}

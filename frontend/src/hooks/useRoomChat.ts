@@ -26,8 +26,17 @@ interface Options {
   roomId?: string;
   username?: string;
   uid?: string;
+  /** Avatar del usuario actual — se publica para el grid de video. */
+  avatar?: string;
   /** Se invoca cuando el anfitrión elimina la sala (ROOM_DELETED). */
   onRoomDeleted?: () => void;
+}
+
+/** Participante conectado con datos para el grid (username + uid + avatar). */
+export interface PresentMember {
+  username: string;
+  uid?: string;
+  avatar?: string;
 }
 
 export interface SendResult {
@@ -43,6 +52,8 @@ interface Result {
   status: ChatStatus;
   /** Usernames conectados ahora mismo (p. ej. ["Juan", "Ana"]). */
   participants: string[];
+  /** Participantes conectados con uid + avatar (para el grid de video). */
+  presentMembers: PresentMember[];
   /** `true` si el username ya estaba conectado (USERNAME_ALREADY_CONNECTED). */
   duplicateUsername: boolean;
   /** Mensajes ordenados cronológicamente (historial + en vivo). */
@@ -63,10 +74,12 @@ export function useRoomChat({
   roomId,
   username,
   uid,
+  avatar,
   onRoomDeleted,
 }: Options): Result {
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [participants, setParticipants] = useState<string[]>([]);
+  const [presentMembers, setPresentMembers] = useState<PresentMember[]>([]);
   const [duplicateUsername, setDuplicateUsername] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [reconnected, setReconnected] = useState(false);
@@ -124,6 +137,7 @@ export function useRoomChat({
     setStatus("connecting");
     setDuplicateUsername(false);
     setParticipants([]);
+    setPresentMembers([]);
     setMessages([]);
     setHistoryStatus("loading");
     setSessionReplaced(false);
@@ -149,6 +163,7 @@ export function useRoomChat({
         roomId,
         username: effectiveUsername,
         uid,
+        avatar,
         ticket,
       });
       socketRef.current = socket;
@@ -205,8 +220,22 @@ export function useRoomChat({
 
       socket.on(
         "participants",
-        (payload: { roomId: string; participants: string[] }) => {
+        (payload: {
+          roomId: string;
+          participants: string[];
+          members?: PresentMember[];
+        }) => {
           setParticipants(payload.participants ?? []);
+          // `members` (con uid + avatar) es lo que alimenta el grid de video.
+          // Si un backend antiguo no lo envía, derivamos una lista mínima
+          // desde los usernames para no dejar el grid vacío.
+          if (Array.isArray(payload.members)) {
+            setPresentMembers(payload.members);
+          } else {
+            setPresentMembers(
+              (payload.participants ?? []).map((name) => ({ username: name }))
+            );
+          }
         }
       );
 
@@ -230,9 +259,10 @@ export function useRoomChat({
       socketRef.current = null;
       setStatus("idle");
       setParticipants([]);
+      setPresentMembers([]);
       setMessages([]);
     };
-  }, [roomId, username, uid, mergeMessages, loadHistory]);
+  }, [roomId, username, uid, avatar, mergeMessages, loadHistory]);
 
   const sendMessage = useCallback(
     async (content: string): Promise<SendResult> => {
@@ -278,6 +308,7 @@ export function useRoomChat({
   return {
     status,
     participants,
+    presentMembers,
     duplicateUsername,
     messages,
     sendMessage,

@@ -130,6 +130,7 @@ export default function RoomPage() {
   // presencia de conectados, username duplicado y ROOM_DELETED.
   const {
     participants: livePresence,
+    presentMembers,
     duplicateUsername,
     messages: chatMessages,
     sendMessage: sendChatMessage,
@@ -142,6 +143,7 @@ export default function RoomPage() {
     roomId,
     username: user?.username,
     uid: user?.uid,
+    avatar: user?.avatar,
     onRoomDeleted: handleRoomDeleted,
   });
 
@@ -199,20 +201,20 @@ export default function RoomPage() {
 
   useEffect(() => {
     if (!user) return;
-    presentUsers.forEach((p) => {
-      if (p.uid === user.uid) return;
-      if (p.avatar) return; // ya tenemos avatar — no hace falta REST
-      if (profileCache[p.uid]) return;
-      if (fetchingRef.current.has(p.uid)) return;
-      fetchingRef.current.add(p.uid);
-      getPublicUser(p.uid)
+    presentMembers.forEach((m) => {
+      if (!m.uid || m.uid === user.uid) return;
+      if (m.avatar) return; // ya tenemos avatar — no hace falta REST
+      if (profileCache[m.uid]) return;
+      if (fetchingRef.current.has(m.uid)) return;
+      fetchingRef.current.add(m.uid);
+      getPublicUser(m.uid)
         .then((profile) =>
-          setProfileCache((prev) => ({ ...prev, [p.uid]: profile }))
+          setProfileCache((prev) => ({ ...prev, [m.uid!]: profile }))
         )
         .catch(() => undefined)
-        .finally(() => fetchingRef.current.delete(p.uid));
+        .finally(() => fetchingRef.current.delete(m.uid!));
     });
-  }, [presentUsers, user, profileCache]);
+  }, [presentMembers, user, profileCache]);
 
   // ── Controles locales de micrófono / cámara / pantalla ─────────────────
   // El estado VIVE en este componente; cada cambio se publica por socket
@@ -273,21 +275,35 @@ export default function RoomPage() {
       });
     }
 
-    presentUsers.forEach((p) => {
-      if (p.uid === user?.uid) return; // no duplicar al actual
-      if (map.has(p.uid)) return;
-      const cached = profileCache[p.uid];
-      map.set(p.uid, {
-        uid: p.uid,
-        username: p.username || cached?.username || `Usuario ${p.uid.slice(0, 6)}`,
-        avatar: p.avatar || cached?.avatar,
-        isOwner: room?.ownerId === p.uid,
+    // La presencia del chat-service (`presentMembers`) es la fuente principal:
+    // es la conexión que realmente refleja quién está conectado. El socket
+    // heredado (`presentUsers`) se usa solo para enriquecer avatar/mic/cam por
+    // uid cuando está disponible.
+    const legacyByUid = new Map(presentUsers.map((p) => [p.uid, p]));
+    const myName = user?.username || user?.displayName;
+
+    presentMembers.forEach((m) => {
+      // No duplicar al usuario actual (puede venir por uid o por username).
+      if (m.uid && m.uid === user?.uid) return;
+      if (!m.uid && myName && m.username === myName) return;
+
+      const key = m.uid || `name:${m.username}`;
+      if (map.has(key)) return;
+
+      const legacy = m.uid ? legacyByUid.get(m.uid) : undefined;
+      const cached = m.uid ? profileCache[m.uid] : undefined;
+      map.set(key, {
+        uid: m.uid || key,
+        username:
+          m.username || cached?.username || `Usuario ${(m.uid ?? "").slice(0, 6)}`,
+        avatar: m.avatar || legacy?.avatar || cached?.avatar,
+        isOwner: !!m.uid && room?.ownerId === m.uid,
         online: true,
       });
     });
 
     return Array.from(map.values());
-  }, [user, room, presentUsers, profileCache]);
+  }, [user, room, presentMembers, presentUsers, profileCache]);
 
   // ── Controles de la barra inferior ─────────────────────────────────────
   const controls: ToggleControl[] = [

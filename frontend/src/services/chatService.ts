@@ -19,6 +19,8 @@ export interface ChatAuth {
   roomId: string;
   username: string;
   uid?: string;
+  /** Avatar del usuario — informativo, para el grid de video. */
+  avatar?: string;
   /** Ticket firmado (cuando el backend tiene autenticación coordinada). */
   ticket?: string | null;
 }
@@ -34,6 +36,7 @@ export function connectChatService(authData: ChatAuth): Socket {
       roomId: authData.roomId,
       username: authData.username,
       uid: authData.uid,
+      avatar: authData.avatar,
       ticket: authData.ticket ?? undefined,
     },
     transports: ["websocket", "polling"],

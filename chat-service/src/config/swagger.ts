@@ -48,9 +48,9 @@ io("http://localhost:${env.port}", {
 | (handshake) | client → server | \`auth: { ticket }\` | Tarea 10: valida el ticket firmado. Rechaza con \`AUTH_REQUIRED\` / \`INVALID_TICKET\` / \`USERNAME_ALREADY_CONNECTED\`. |
 | \`send_message\` | client → server (ack) | \`{ content }\` | Valida vacío (\`EMPTY_MESSAGE\`) y longitud >500 (\`MESSAGE_TOO_LONG\`); **persiste** (vía room-service) y difunde a la sala. Ack \`{ ok, data: ChatMessage, persisted }\`. |
 | \`receive_message\` | server → sala | \`ChatMessage\` | Mensaje canónico nuevo, SOLO a la sala (Tareas 4 y 8). |
-| \`user_joined\` | server → sala | \`{ roomId, username }\` | Un usuario se conectó. |
+| \`user_joined\` | server → sala | \`{ roomId, username, uid?, avatar? }\` | Un usuario se conectó. |
 | \`user_left\` | server → sala | \`{ roomId, username }\` | Un usuario se desconectó. |
-| \`participants\` | server → sala | \`{ roomId, participants: string[] }\` | Lista actualizada de conectados. |
+| \`participants\` | server → sala | \`{ roomId, participants: string[], members: { username, uid?, avatar? }[] }\` | Lista actualizada de conectados (\`members\` incluye uid+avatar para el grid). |
 | \`room_closed\` | server → sala | \`{ roomId, error: ROOM_CLOSED }\` | El room-service eliminó la sala; el socket se desconecta. |
 
 ## Reconexión (Tarea 7)

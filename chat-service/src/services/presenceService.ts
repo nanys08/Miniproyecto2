@@ -27,10 +27,19 @@ export interface ConnectedUser {
   username: string;
   /** UID Firebase del usuario (informativo; la unicidad es por username). */
   uid?: string;
+  /** Avatar del usuario (URL o data-uri). Informativo, para el grid de video. */
+  avatar?: string;
   /** ID del socket que mantiene viva la conexión. */
   socketId: string;
   /** Momento en que se conectó (ISO 8601). */
   joinedAt: string;
+}
+
+/** Vista pública de un participante conectado (sin socketId interno). */
+export interface ParticipantInfo {
+  username: string;
+  uid?: string;
+  avatar?: string;
 }
 
 /** roomId → (username → usuario conectado). */
@@ -147,6 +156,21 @@ export const removeBySocketId = (
 export const getParticipants = (roomId: string): string[] => {
   const members = rooms.get(roomId);
   return members ? Array.from(members.keys()) : [];
+};
+
+/**
+ * Lista detallada de participantes conectados (username + uid + avatar). La usa
+ * el grid de video del frontend para pintar a cada persona presente. No expone
+ * el socketId interno.
+ */
+export const getParticipantsDetailed = (roomId: string): ParticipantInfo[] => {
+  const members = rooms.get(roomId);
+  if (!members) return [];
+  return Array.from(members.values()).map((u) => ({
+    username: u.username,
+    uid: u.uid,
+    avatar: u.avatar,
+  }));
 };
 
 /** Devuelve los socketIds presentes en la sala (para broadcast/cierre). */

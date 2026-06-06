@@ -75,11 +75,15 @@ export const initChatSocket = (io: Server): void => {
       roomId?: string;
       username?: string;
       uid?: string;
+      avatar?: string;
       ticket?: string;
     };
     let roomId = typeof auth.roomId === "string" ? auth.roomId.trim() : "";
     let username = typeof auth.username === "string" ? auth.username.trim() : "";
     let uid = typeof auth.uid === "string" ? auth.uid : undefined;
+    // El avatar es informativo (para el grid) y NO viaja en el ticket firmado,
+    // así que lo tomamos siempre del handshake del cliente.
+    const avatar = typeof auth.avatar === "string" ? auth.avatar : undefined;
 
     // Tarea 10 — autenticación coordinada. Si hay secreto configurado, el
     // ticket emitido por el room-service es obligatorio. Sus datos (roomId,
@@ -130,6 +134,7 @@ export const initChatSocket = (io: Server): void => {
     socket.data.roomId = roomId;
     socket.data.username = username;
     socket.data.uid = uid;
+    socket.data.avatar = avatar;
     next();
   });
 
@@ -137,20 +142,23 @@ export const initChatSocket = (io: Server): void => {
     const roomId: string = socket.data.roomId;
     const username: string = socket.data.username;
     const uid: string | undefined = socket.data.uid;
+    const avatar: string | undefined = socket.data.avatar;
 
     // Tarea 7/8: registrar al usuario en SU sala (aislada del resto).
     socket.join(roomId);
     presence.addUser(roomId, {
       username,
       uid,
+      avatar,
       socketId: socket.id,
       joinedAt: new Date().toISOString(),
     });
 
-    socket.to(roomId).emit("user_joined", { roomId, username });
+    socket.to(roomId).emit("user_joined", { roomId, username, uid, avatar });
     io.to(roomId).emit("participants", {
       roomId,
       participants: presence.getParticipants(roomId),
+      members: presence.getParticipantsDetailed(roomId),
     });
 
     // ─── send_message — Tareas 3-6 + persistencia (Tarea 6 del Repo 2) ─────
@@ -205,7 +213,11 @@ export const initChatSocket = (io: Server): void => {
     socket.on("participants", (_payload: unknown, ack: unknown) => {
       safeAck(ack, {
         ok: true,
-        data: { roomId, participants: presence.getParticipants(roomId) },
+        data: {
+          roomId,
+          participants: presence.getParticipants(roomId),
+          members: presence.getParticipantsDetailed(roomId),
+        },
       });
     });
 
@@ -224,6 +236,7 @@ export const initChatSocket = (io: Server): void => {
         io.to(removed.roomId).emit("participants", {
           roomId: removed.roomId,
           participants: presence.getParticipants(removed.roomId),
+          members: presence.getParticipantsDetailed(removed.roomId),
         });
       }
       logger.info(

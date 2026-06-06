@@ -4,6 +4,7 @@ import swaggerUi from "swagger-ui-express";
 import { env } from "./config/env";
 import { swaggerSpec } from "./config/swagger";
 import routes from "./routes";
+import internalRoutes from "./routes/internalRoutes";
 
 const app = express();
 
@@ -66,6 +67,10 @@ app.use(
 );
 
 app.use("/api", routes);
+
+// Rutas internas service-to-service (las llama el chat-service / Repo 2).
+// Fuera de `/api` para distinguirlas del contrato público del frontend.
+app.use("/internal", internalRoutes);
 
 // Endpoint raíz informativo — útil cuando alguien abre la URL del backend
 // en el navegador para verificar que está vivo y dónde está la documentación.

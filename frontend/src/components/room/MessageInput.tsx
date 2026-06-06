@@ -1,32 +1,38 @@
 /**
- * @file MessageInput — Caja de texto para enviar mensajes al chat.
+ * @file MessageInput — Caja de texto para enviar mensajes al chat (US-10).
  *
  * Comportamiento:
  *  - Enter envía; Shift+Enter inserta salto de línea.
- *  - El botón "Enviar" se desactiva cuando no hay socket activo (`disabled`)
- *    o cuando el campo está vacío.
- *  - Si el envío falla (`onSend` devuelve `false`) restauramos el texto
- *    para que el usuario pueda reintentar sin volver a escribirlo.
+ *  - T5: enviar vacío muestra "No puedes enviar mensajes vacíos" (no se envía).
+ *  - T6: más de 500 caracteres bloquea el envío con
+ *    "El mensaje supera el límite permitido" + contador en rojo.
+ *  - T10: mientras envía, el campo y el botón se deshabilitan y se muestra
+ *    "Enviando mensaje…".
+ *  - Si el envío falla, se conserva el texto para reintentar.
  *
- * Accesibilidad: textarea con label asociado, `aria-describedby` para el
- * mensaje de error y `aria-disabled` cuando está bloqueado por desconexión.
+ * Accesibilidad: textarea con `aria-label`, `aria-describedby` para error/hint,
+ * error con `role="alert"`, contador decorativo (`aria-hidden`).
  */
 
 import { useState, useRef, type KeyboardEvent, type FormEvent } from "react";
 import { cn } from "@/utils/cn";
+import { MAX_CHAT_MESSAGE_LENGTH, type SendResult } from "@/hooks/useRoomChat";
 
 interface MessageInputProps {
-  /** Envía el mensaje. Resuelve `true` si el server lo confirmó. */
-  onSend: (content: string) => Promise<boolean>;
+  /** Envía el mensaje. Resuelve `{ ok, error? }`. */
+  onSend: (content: string) => Promise<SendResult>;
   /** Cuando es `true` se bloquea el envío (transporte caído, sin red, …). */
   disabled?: boolean;
-  /** Mensaje informativo a mostrar bajo el input (ej. "Sin conexión"). */
+  /** Texto guía del campo (lo decide el panel según el contexto). */
+  placeholder?: string;
+  /** Mensaje informativo a mostrar bajo el input (ej. "Reconectando chat…"). */
   hint?: string;
 }
 
 export default function MessageInput({
   onSend,
   disabled = false,
+  placeholder = "Escribe tu mensaje…",
   hint,
 }: MessageInputProps) {
   const [value, setValue] = useState("");
@@ -34,23 +40,38 @@ export default function MessageInput({
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const isEmpty = value.trim().length === 0;
-  const blocked = disabled || sending || isEmpty;
+  const trimmedLength = value.trim().length;
+  const overLimit = trimmedLength > MAX_CHAT_MESSAGE_LENGTH;
+  // El botón NO se bloquea por vacío: así un submit vacío muestra el aviso (T5).
+  const blocked = disabled || sending || overLimit;
 
   async function submit() {
-    if (blocked) return;
+    if (disabled || sending) return;
     const draft = value;
+
+    // T5: mensaje vacío.
+    if (!draft.trim()) {
+      setErrorMsg("No puedes enviar mensajes vacíos");
+      textareaRef.current?.focus();
+      return;
+    }
+    // T6: longitud máxima.
+    if (draft.trim().length > MAX_CHAT_MESSAGE_LENGTH) {
+      setErrorMsg("El mensaje supera el límite permitido");
+      return;
+    }
+
     setErrorMsg(null);
     setSending(true);
-    setValue("");
-    const ok = await onSend(draft);
+    const res = await onSend(draft);
     setSending(false);
-    if (!ok) {
-      setValue(draft);
-      setErrorMsg("No se pudo enviar. Reintenta cuando vuelva la conexión.");
-      // Devolver foco al textarea para que el usuario pueda corregir.
-      requestAnimationFrame(() => textareaRef.current?.focus());
+    if (res.ok) {
+      setValue("");
+    } else {
+      // Conservamos el texto para reintentar (estado de error de US-10).
+      setErrorMsg(res.error ?? "No fue posible enviar el mensaje");
     }
+    requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -65,38 +86,60 @@ export default function MessageInput({
     void submit();
   }
 
+  const showCounter = trimmedLength >= MAX_CHAT_MESSAGE_LENGTH - 100;
+  const describedBy = errorMsg
+    ? "chat-input-error"
+    : sending
+    ? "chat-input-sending"
+    : hint
+    ? "chat-input-hint"
+    : undefined;
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-1">
       <label htmlFor="chat-message-input" className="sr-only">
-        Escribe tu mensaje
+        Campo de mensaje
       </label>
       <div
         className={cn(
           "flex items-end gap-2 rounded-xl border bg-white px-3 py-2",
           "focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500",
-          disabled
-            ? "border-slate-200 bg-slate-50 opacity-70"
-            : "border-slate-300"
+          disabled ? "border-slate-200 bg-slate-50 opacity-70" : "border-slate-300",
+          overLimit && "border-red-400 focus-within:ring-red-500"
         )}
       >
         <textarea
           ref={textareaRef}
           id="chat-message-input"
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value);
+            if (errorMsg) setErrorMsg(null);
+          }}
           onKeyDown={handleKeyDown}
-          placeholder={disabled ? "Sin conexión" : "Escribe tu mensaje…"}
+          placeholder={placeholder}
           rows={1}
-          disabled={disabled}
-          aria-disabled={disabled || undefined}
-          aria-describedby={errorMsg ? "chat-input-error" : hint ? "chat-input-hint" : undefined}
+          disabled={disabled || sending}
+          aria-label="Campo de mensaje"
+          aria-invalid={overLimit || undefined}
+          aria-describedby={describedBy}
           className={cn(
             "flex-1 resize-none bg-transparent text-sm text-slate-900 outline-none",
-            "placeholder:text-slate-400",
-            "max-h-32 min-h-[24px]",
+            "placeholder:text-slate-400 max-h-32 min-h-[24px]",
             "disabled:cursor-not-allowed"
           )}
         />
+        {showCounter && (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "select-none self-end pb-0.5 text-[11px] tabular-nums",
+              overLimit ? "font-semibold text-red-600" : "text-slate-400"
+            )}
+          >
+            {trimmedLength}/{MAX_CHAT_MESSAGE_LENGTH}
+          </span>
+        )}
         <button
           type="submit"
           disabled={blocked}
@@ -105,7 +148,7 @@ export default function MessageInput({
             "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2",
             blocked
-              ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+              ? "cursor-not-allowed bg-slate-200 text-slate-400"
               : "bg-blue-600 text-white hover:bg-blue-700"
           )}
         >
@@ -131,6 +174,7 @@ export default function MessageInput({
           )}
         </button>
       </div>
+
       {errorMsg && (
         <p
           id="chat-input-error"
@@ -140,7 +184,16 @@ export default function MessageInput({
           {errorMsg}
         </p>
       )}
-      {!errorMsg && hint && (
+      {!errorMsg && sending && (
+        <p
+          id="chat-input-sending"
+          aria-live="polite"
+          className="px-1 text-xs text-slate-500"
+        >
+          Enviando mensaje…
+        </p>
+      )}
+      {!errorMsg && !sending && hint && (
         <p id="chat-input-hint" className="px-1 text-xs text-slate-500">
           {hint}
         </p>

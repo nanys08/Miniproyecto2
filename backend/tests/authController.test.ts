@@ -85,6 +85,7 @@ describe("register — validaciones de entrada", () => {
     await authController.register(baseReq({ body: { username: "x" } }), res);
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({
+      success: false,
       error: ErrorCode.MISSING_FIELDS,
       message: expect.any(String),
     });
@@ -214,7 +215,7 @@ describe("register — no filtra errores internos", () => {
       res
     );
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: ErrorCode.INTERNAL_ERROR, message: expect.any(String) });
+    expect(res.body).toEqual({ success: false, error: ErrorCode.INTERNAL_ERROR, message: expect.any(String) });
     expect(JSON.stringify(res.body)).not.toMatch(/FIRESTORE|permission_denied/i);
   });
 });

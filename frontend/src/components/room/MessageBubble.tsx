@@ -94,7 +94,10 @@ export default function MessageBubble({
         {ts && (
           <span
             className={cn(
-              "mt-0.5 text-[10px] text-slate-400",
+              // Contraste AA: slate-500 (#64748b ≈ 4.8:1 sobre blanco). El
+              // slate-400 anterior (#94a3b8 ≈ 2.5:1) no cumplía (corrección
+              // del ⚠️ de timestamps señalado en la auditoría WCAG).
+              "mt-0.5 text-[10px] text-slate-500",
               isOwn ? "self-end" : "self-start"
             )}
           >

@@ -4,7 +4,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Paleta con contraste AA mínimo sobre fondos claros
+        // Paleta con contraste AA mínimo sobre fondos claros (design system)
         brand: {
           50: "#eff6ff",
           100: "#dbeafe",
@@ -13,6 +13,15 @@ export default {
           700: "#1e40af",
           900: "#1e3a8a",
         },
+        // Primario de navegación / header (alta fidelidad)
+        navy: {
+          DEFAULT: "#1e3a5f",
+          900: "#1e3a5f",
+          800: "#284b76",
+        },
+        // Fondos de superficie del design system
+        surface: "#f9fafb", // sidenav y listas
+        canvas: "#fafbfc", // área de contenido
       },
       fontFamily: {
         sans: [

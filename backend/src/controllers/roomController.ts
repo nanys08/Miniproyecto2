@@ -15,6 +15,9 @@ import { Response } from "express";
 import { AuthRequest } from "../middlewares/authMiddleware";
 import * as roomService from "../services/roomService";
 import * as messageService from "../services/messageService";
+import * as authService from "../services/authService";
+import * as chatNotifier from "../services/chatNotifier";
+import { issueChatTicket } from "../services/chatTicket";
 import { AppError, ErrorCode, buildError, mapFirestoreError } from "../utils/errors";
 import { logger } from "../utils/logger";
 
@@ -120,6 +123,37 @@ export const joinRoomByCode = async (
 };
 
 /**
+ * **POST /api/rooms/join** — Une al usuario a una sala por su código (US-08).
+ *
+ * Variante POST del flujo "Unirme a sala": el código viaja en el body
+ * (`{ code }`) en vez de la URL. Devuelve la sala para que el frontend
+ * redirija a `/room/{roomId}`.
+ *
+ * @param req Body: `{ code: string }`.
+ * @param res 200 con `{ room }`, 400 si falta el código, 404 si no existe.
+ */
+export const joinRoom = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { code } = (req.body ?? {}) as { code?: string };
+    if (!code || typeof code !== "string" || !code.trim()) {
+      res.status(400).json(buildError(ErrorCode.ROOM_CODE_INVALID));
+      return;
+    }
+    const room = await roomService.getRoomByAccessCode(code);
+    if (!room) {
+      res.status(404).json(buildError(ErrorCode.ROOM_NOT_FOUND));
+      return;
+    }
+    res.json({ room });
+  } catch (err) {
+    sendError(res, err, "joinRoom");
+  }
+};
+
+/**
  * **GET /api/rooms** — Devuelve las salas del usuario autenticado.
  *
  * Incluye:
@@ -170,6 +204,126 @@ export const getRoomById = async (
 };
 
 /**
+ * **POST /api/rooms/:roomId/enter** — Verifica la sala e informa al WebSocket.
+ *
+ * Implementa el flujo "usuario entra" de la Tarea 5:
+ *   1. Valida que la sala existe (`ROOM_NOT_FOUND` si no).
+ *   2. Añade al usuario a `participants` si aún no lo era (idempotente).
+ *   3. Informa al chat-service (Repositorio 2) que la sala está activa, para
+ *      que acepte el handshake WebSocket del usuario (best-effort).
+ *   4. Devuelve `{ roomId, roomName }` para que el frontend abra el WebSocket.
+ *
+ * @param req Path param `roomId`.
+ * @param res 200 con `{ roomId, roomName }`, 404 si la sala no existe.
+ */
+export const enterRoom = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { uid } = req.user!;
+    const { roomId } = req.params as { roomId: string };
+
+    // 1. Validar la sala
+    const room = await roomService.getRoomById(roomId);
+    if (!room) {
+      res.status(404).json(buildError(ErrorCode.ROOM_NOT_FOUND));
+      return;
+    }
+
+    // 2. Asegurar membresía (idempotente vía arrayUnion)
+    const isMember =
+      room.ownerId === uid ||
+      (Array.isArray(room.participants) && room.participants.includes(uid));
+    if (!isMember) {
+      await roomService.addParticipant(roomId, uid);
+    }
+
+    // 3. Informar al WebSocket (no bloquea la respuesta si el chat-service
+    //    está caído — chatNotifier es best-effort).
+    const profile = await authService
+      .getUserProfile(uid)
+      .catch(() => null);
+    const username = profile?.username;
+    await chatNotifier.notifyUserJoined({
+      roomId,
+      roomName: room.name,
+      uid,
+      username,
+    });
+
+    // 4. Emitir el ticket de autenticación coordinada (Tarea 10). El frontend
+    //    lo pasa en el handshake del WebSocket: `io(url, { auth: { ticket } })`.
+    //    Es `null` si el chat-service corre sin secreto (modo desarrollo).
+    const chatTicket = username
+      ? issueChatTicket({ roomId, username, uid })
+      : null;
+
+    // 5. Datos para que el frontend abra el WebSocket contra el chat-service.
+    res.json({ roomId: room.roomId, roomName: room.name, username, chatTicket });
+  } catch (err) {
+    sendError(res, err, "enterRoom");
+  }
+};
+
+/**
+ * **PUT /api/rooms/:roomId** — Edita el nombre de una sala (US-07).
+ *
+ * Solo el dueño (`ownerId`) puede editar. Un participante no creador recibe
+ * 403 `FORBIDDEN` ("Restricción a invitados").
+ *
+ * Validaciones:
+ *   1. `ROOM_NAME_INVALID` si `name` falta, está vacío o supera 100 chars.
+ *   2. `ROOM_NOT_FOUND` si la sala no existe.
+ *   3. `FORBIDDEN` si el solicitante no es el dueño.
+ *
+ * @param req Path param `roomId`, body `{ name: string }`.
+ * @param res 200 con `{ room }`, 400/403/404 según el caso.
+ */
+export const updateRoom = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const { uid } = req.user!;
+    const { roomId } = req.params as { roomId: string };
+    const { name } = (req.body ?? {}) as { name?: string };
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      res.status(400).json(buildError(ErrorCode.ROOM_NAME_INVALID));
+      return;
+    }
+    const trimmedName = name.trim();
+    if (trimmedName.length > ROOM_NAME_MAX_LENGTH) {
+      res.status(400).json(
+        buildError(
+          ErrorCode.ROOM_NAME_INVALID,
+          `El nombre no puede superar ${ROOM_NAME_MAX_LENGTH} caracteres`
+        )
+      );
+      return;
+    }
+
+    const room = await roomService.getRoomById(roomId);
+    if (!room) {
+      res.status(404).json(buildError(ErrorCode.ROOM_NOT_FOUND));
+      return;
+    }
+    if (room.ownerId !== uid) {
+      res.status(403).json(
+        buildError(ErrorCode.FORBIDDEN, "Solo el dueño puede editar esta sala")
+      );
+      return;
+    }
+
+    const updated = await roomService.updateRoomName(roomId, trimmedName);
+    res.json({ room: updated });
+  } catch (err) {
+    sendError(res, err, "updateRoom");
+  }
+};
+
+/**
  * **DELETE /api/rooms/:roomId** — Elimina una sala.
  *
  * Solo el dueño (`ownerId`) puede eliminar la sala.
@@ -193,7 +347,7 @@ export const deleteRoom = async (
     }
     if (room.ownerId !== uid) {
       res.status(403).json(
-        buildError(ErrorCode.INTERNAL_ERROR, "Solo el dueño puede eliminar esta sala")
+        buildError(ErrorCode.FORBIDDEN, "Solo el dueño puede eliminar esta sala")
       );
       return;
     }
@@ -204,6 +358,11 @@ export const deleteRoom = async (
     // hiciéramos al revés.
     await messageService.deleteRoomMessages(roomId);
     await roomService.deleteRoom(roomId);
+
+    // Informar al chat-service (Tarea 5): cerrar las conexiones WebSocket
+    // activas de esta sala. Best-effort — no bloquea la respuesta.
+    await chatNotifier.notifyRoomClosed(roomId);
+
     res.status(204).send();
   } catch (err) {
     sendError(res, err, "deleteRoom");
@@ -243,7 +402,7 @@ export const getRoomHistory = async (
     const isParticipant = Array.isArray(room.participants) && room.participants.includes(uid);
     if (!isOwner && !isParticipant) {
       res.status(403).json(
-        buildError(ErrorCode.INTERNAL_ERROR, "No eres miembro de esta sala")
+        buildError(ErrorCode.FORBIDDEN, "No eres miembro de esta sala")
       );
       return;
     }
@@ -256,7 +415,24 @@ export const getRoomHistory = async (
     const rawLimit = limitParam !== undefined ? Number(limitParam) : NaN;
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : undefined;
 
-    const messages = await messageService.getRoomMessages(roomId, limit);
+    // Tarea 5 — manejo de errores de Firestore al cargar el historial.
+    // Si la lectura falla (Firestore caído, índice faltante, etc.), no
+    // filtramos el error interno: devolvemos un mensaje estable y legible.
+    let messages;
+    try {
+      messages = await messageService.getRoomMessages(roomId, limit);
+    } catch (err) {
+      logger.error("[getRoomHistory] fallo leyendo historial", err);
+      // Mantenemos el código estable INTERNAL_ERROR (el frontend ya lo maneja)
+      // pero con el mensaje legible que pide la Tarea 5. No filtramos detalles
+      // internos (índice faltante, paths de Firestore, etc.).
+      res
+        .status(500)
+        .json(
+          buildError(ErrorCode.INTERNAL_ERROR, "No fue posible cargar historial")
+        );
+      return;
+    }
     res.json({ messages });
   } catch (err) {
     sendError(res, err, "getRoomHistory");

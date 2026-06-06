@@ -12,9 +12,14 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import Modal from "@/components/Modal";
 import Button from "@/components/Button";
 import { cn } from "@/utils/cn";
-import { joinRoomByCode, type Room } from "@/services/rooms";
+import { joinRoom, type Room } from "@/services/rooms";
 import { ApiError } from "@/services/api";
 import { friendlyError } from "@/services/apiErrors";
+
+/** Longitud exacta del código de acceso (alfanumérico en mayúsculas). */
+const ACCESS_CODE_LENGTH = 6;
+/** Formato válido: 6 caracteres del alfabeto sin ambigüedades. */
+const ACCESS_CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/;
 
 type Status = "idle" | "loading" | "error";
 
@@ -39,25 +44,40 @@ export default function JoinRoomModal({ open, onClose, onJoined }: JoinRoomModal
     return () => clearTimeout(t);
   }, [open]);
 
+  // Tarea 2: botón deshabilitado mientras el campo esté vacío.
   const canSubmit = code.trim().length > 0 && status !== "loading";
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!code.trim()) {
+    const value = code.trim().toUpperCase();
+
+    if (!value) {
       setError("Ingresa un código de acceso");
       inputRef.current?.focus();
       return;
     }
+    // Tarea 2: validación local de formato — "ABC" (incompleto/ inválido) no
+    // se envía al backend; se avisa de inmediato con "Código inválido".
+    if (value.length !== ACCESS_CODE_LENGTH || !ACCESS_CODE_RE.test(value)) {
+      setStatus("error");
+      setError("Código inválido");
+      inputRef.current?.focus();
+      return;
+    }
+
     setError(null);
     setStatus("loading");
     try {
-      const room = await joinRoomByCode(code.trim());
+      // Tarea 3: consumir el backend principal — POST /rooms/join.
+      const room = await joinRoom(value);
       onJoined(room);
     } catch (err) {
       setStatus("error");
       if (err instanceof ApiError && err.status === 404) {
-        // Mensaje específico — el genérico "No encontrado" no aporta contexto.
-        setError("No existe ninguna sala con ese código");
+        // US-08 Escenario 2: código inexistente.
+        setError("El código ingresado no existe");
+      } else if (err instanceof ApiError && err.message === "ROOM_CODE_INVALID") {
+        setError("Código inválido");
       } else {
         setError(friendlyError(err).message);
       }
@@ -94,15 +114,20 @@ export default function JoinRoomModal({ open, onClose, onJoined }: JoinRoomModal
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? "join-code-error" : undefined}
             className={cn(
-              "h-11 w-full rounded-md border px-3 font-mono text-base tracking-widest text-slate-900",
-              "placeholder:font-sans placeholder:tracking-normal placeholder:text-slate-400",
-              "focus-visible:outline-none focus-visible:ring-2",
+              "h-11 w-full rounded-md border px-3 text-center font-mono text-base font-semibold uppercase tracking-[0.14em] text-brand-700",
+              "placeholder:font-sans placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400",
+              "focus-visible:outline-none focus-visible:ring-2 focus:bg-white",
               "disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500",
               error
-                ? "border-red-500 focus-visible:ring-red-500"
-                : "border-slate-300 focus-visible:ring-brand-600"
+                ? "border-red-500 bg-red-50 focus-visible:ring-red-500"
+                : "border-brand-100 bg-brand-50 focus-visible:ring-brand-600"
             )}
           />
+          {!error && (
+            <p className="text-xs text-slate-500">
+              Pídele el código al dueño de la sala.
+            </p>
+          )}
           {error && (
             <p
               id="join-code-error"
@@ -118,8 +143,8 @@ export default function JoinRoomModal({ open, onClose, onJoined }: JoinRoomModal
         </div>
 
         <div className="mt-1 flex justify-start gap-2">
-          <Button type="submit" disabled={!canSubmit} isLoading={status === "loading"} className="min-w-[110px]">
-            Unirme
+          <Button type="submit" disabled={!canSubmit} isLoading={status === "loading"} className="min-w-[150px]">
+            Validar y entrar →
           </Button>
           <Button type="button" variant="secondary" onClick={handleClose} disabled={status === "loading"}>
             Cancelar

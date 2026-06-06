@@ -26,6 +26,18 @@ API REST + Socket.IO del backend de **EstudioColab** (Mini-proyecto 2).
 * **Rooms** — Crear, listar, unirse y eliminar salas; historial de mensajes.
 * **Tiempo real** — Chat y presencia vía Socket.IO (ver sección "Socket.IO").
 
+## Historias de usuario cubiertas por el backend
+
+Cada operación relevante indica la historia que habilita en su descripción
+(\`**Historia de usuario:** US-XX\`). Resumen:
+
+| Historia | Endpoint(s) / evento(s) |
+|---|---|
+| **US-07 — Editar y Eliminar Salas** | \`PUT /api/rooms/{roomId}\` (editar nombre) y \`DELETE /api/rooms/{roomId}\` (eliminar). Solo el dueño → 403 \`FORBIDDEN\` para invitados. |
+| **US-08 — Unirse a una Sala** | \`POST /api/rooms/join\`, \`GET /api/rooms/join/{code}\`, \`POST /api/rooms/{roomId}/enter\`, \`GET /api/rooms/{roomId}\` (404 \`ROOM_NOT_FOUND\` si el ID/código no existe). |
+| **US-10 — Mensajería Instantánea** | Eventos WebSocket \`send_message\` → \`receive_message\` (servidor de tiempo real / chat-service). |
+| **US-11 — Historial de Chat** | \`GET /api/rooms/{roomId}/messages\` (orden cronológico desde Firestore). |
+
 ## Autenticación
 
 Salvo las rutas marcadas como **público**, todas exigen el header:
@@ -47,6 +59,10 @@ Errores de Firestore (\`permission-denied\`, \`not-found\`, \`unavailable\`)
 se normalizan vía \`mapFirestoreError()\` antes de responder.
 
 ## Socket.IO — eventos
+
+**Historia de usuario:** US-10 — Mensajería Instantánea (\`send_message\` →
+\`receive_message\`, en tiempo real para todos los presentes). El servidor de
+tiempo real dedicado vive en el **chat-service** (Repositorio 2).
 
 Conexión: \`io(SOCKET_URL, { auth: { token } })\` (mismo token Firebase).
 
@@ -109,6 +125,13 @@ hablar directamente con Firestore.
       {
         name: "Health",
         description: "Endpoints de estado del servicio.",
+      },
+      {
+        name: "Interno",
+        description:
+          "Rutas service-to-service que consume el chat-service (Repositorio 2), " +
+          "como la persistencia de mensajes (Tarea 6). Requieren el header " +
+          "`X-Internal-Secret`; no forman parte del contrato público del frontend.",
       },
     ],
     components: {
@@ -401,12 +424,21 @@ hablar directamente con Firestore.
         },
         Error: {
           type: "object",
-          required: ["error", "message"],
+          required: ["success", "error", "message"],
           description:
-            "Forma estable de los errores del backend. El frontend toma " +
-            "decisiones con `error` (código); muestra `message` o lo " +
-            "traduce con su propio i18n.",
+            "Forma **uniforme** de los errores del backend (sprint de " +
+            "accesibilidad/UX). `success` siempre es `false`; el frontend toma " +
+            "decisiones con `error` (código) y muestra `message` (texto claro " +
+            "en español, nunca un código pelado tipo `\"500\"`).",
           properties: {
+            success: {
+              type: "boolean",
+              enum: [false],
+              example: false,
+              description:
+                "Bandera estable para distinguir error de éxito sin " +
+                "inspeccionar el status HTTP.",
+            },
             error: {
               type: "string",
               enum: [
@@ -427,6 +459,7 @@ hablar directamente con Firestore.
                 "ROOM_NAME_INVALID",
                 "ROOM_CODE_INVALID",
                 "ROOM_NOT_FOUND",
+                "FORBIDDEN",
                 "INTERNAL_ERROR",
               ],
               example: "USERNAME_ALREADY_EXISTS",
@@ -453,12 +486,14 @@ hablar directamente con Firestore.
               examples: {
                 missingToken: {
                   value: {
+                    success: false,
                     error: "MISSING_TOKEN",
                     message: "Token de autorización requerido",
                   },
                 },
                 invalidToken: {
                   value: {
+                    success: false,
                     error: "INVALID_TOKEN",
                     message: "Token inválido o expirado",
                   },
@@ -478,6 +513,7 @@ hablar directamente con Firestore.
             "application/json": {
               schema: { $ref: "#/components/schemas/Error" },
               example: {
+                success: false,
                 error: "INTERNAL_ERROR",
                 message: "Error interno del servidor",
               },
@@ -487,13 +523,13 @@ hablar directamente con Firestore.
         Forbidden: {
           description:
             "Acción no permitida para el solicitante (no es dueño / no es " +
-            "miembro / etc.). El cliente debería tratarlo como un " +
-            "`FORBIDDEN` en su mapper de errores y mostrar 'No tienes acceso'.",
+            "miembro / etc.). Código `FORBIDDEN`, status HTTP 403.",
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/Error" },
               example: {
-                error: "INTERNAL_ERROR",
+                success: false,
+                error: "FORBIDDEN",
                 message: "No eres miembro de esta sala",
               },
             },

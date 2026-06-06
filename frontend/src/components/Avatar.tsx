@@ -22,9 +22,31 @@ function getInitials(name?: string | null, email?: string | null): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-// Avatar circular con iniciales sobre gradiente. Si no hay nombre,
-// extrae las iniciales del email. Por defecto es decorativo (aria-hidden),
-// salvo que se le pase un nombre — entonces se anuncia como imagen.
+/**
+ * Paleta de avatares por inicial (design system). Fondo claro + texto oscuro
+ * del mismo tono → contraste AA y color distintivo por persona.
+ */
+const AVATAR_PALETTE = [
+  "bg-blue-100 text-blue-700", // #DBEAFE / #1d4ed8
+  "bg-pink-100 text-pink-800", // #FCE7F3 / #9d174d
+  "bg-emerald-100 text-emerald-800", // #D1FAE5 / #065f46
+  "bg-violet-100 text-violet-800", // #EDE9FE / #5b21b6
+  "bg-amber-100 text-amber-800",
+  "bg-cyan-100 text-cyan-800",
+];
+
+/** Color estable derivado del nombre (mismo nombre → mismo color). */
+function paletteFor(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+}
+
+// Avatar circular con iniciales sobre un color sólido distintivo por persona.
+// Si no hay nombre, extrae las iniciales del email. Por defecto es decorativo
+// (aria-hidden), salvo que se le pase un nombre — entonces se anuncia como imagen.
 export default function Avatar({
   name,
   email,
@@ -40,8 +62,8 @@ export default function Avatar({
       aria-label={label ? `Avatar de ${label}` : undefined}
       aria-hidden={label ? undefined : true}
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full font-bold text-white",
-        "bg-gradient-to-br from-purple-500 via-pink-500 to-blue-500",
+        "flex shrink-0 items-center justify-center rounded-full font-bold",
+        paletteFor(label ?? initials),
         sizeMap[size],
         className
       )}

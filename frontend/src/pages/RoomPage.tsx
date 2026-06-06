@@ -22,16 +22,19 @@
  * `useAuth().user.avatar`).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import { useToast } from "@/hooks/useToast";
+import { useRoomChat } from "@/hooks/useRoomChat";
 import { getRoom, type Room } from "@/services/rooms";
 import { getPublicUser, type PublicUser } from "@/services/users";
 import { friendlyError, type FriendlyError } from "@/services/apiErrors";
 import ChatPanel from "@/components/room/ChatPanel";
 import ConnectionBadge from "@/components/room/ConnectionBadge";
+import RoomSettingsModal from "@/components/rooms/RoomSettingsModal";
 import ErrorState from "@/components/ErrorState";
 import Loader from "@/components/Loader";
 import Avatar from "@/components/Avatar";
@@ -84,11 +87,10 @@ export default function RoomPage() {
   }, [roomId, reloadKey]);
 
   // ── Suscribirse al chat ─────────────────────────────────────────────────
+  // Socket heredado (puerto 3000): presencia del grid de video + media (US-09).
   const {
     status,
     statusLabel,
-    messages,
-    sendMessage,
     presentUsers,
     leaveRoom,
     mediaStates,
@@ -100,6 +102,55 @@ export default function RoomPage() {
   // el emit llegue al servidor, y el resto de la sala no se enteraría.
   const handleLeave = async () => {
     await leaveRoom();
+    navigate("/dashboard");
+  };
+
+  // ── Presencia y ciclo de vida vía chat-service (Repo 2) ────────────────
+  const { show } = useToast();
+  const isHost = !!user && !!room && room.ownerId === user.uid;
+
+  // Tarea 9: salir de la sala cuando el anfitrión la elimina (ROOM_DELETED).
+  // Guard para no disparar dos veces (el host también recibe el evento).
+  const deletedRef = useRef(false);
+  const handleRoomDeleted = useCallback(() => {
+    if (deletedRef.current) return;
+    deletedRef.current = true;
+    show("info", "La sala fue eliminada");
+    navigate("/dashboard");
+  }, [show, navigate]);
+
+  // Chat-service (puerto 8081, /ws/chat): mensajería en tiempo real (US-10),
+  // presencia de conectados, username duplicado y ROOM_DELETED.
+  const {
+    participants: livePresence,
+    duplicateUsername,
+    messages: chatMessages,
+    sendMessage: sendChatMessage,
+    status: chatStatus,
+    reconnected: chatReconnected,
+    historyStatus,
+    retryHistory,
+  } = useRoomChat({
+    roomId,
+    username: user?.username,
+    uid: user?.uid,
+    onRoomDeleted: handleRoomDeleted,
+  });
+
+  // ── Configuración de sala (solo anfitrión) ─────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsBtnRef = useRef<HTMLButtonElement>(null);
+
+  const handleRoomUpdated = (updated: Room) => {
+    setRoom(updated);
+    setSettingsOpen(false);
+    show("success", "Sala actualizada correctamente");
+  };
+
+  const handleRoomDeletedByHost = () => {
+    deletedRef.current = true; // evita el doble aviso del evento WS
+    setSettingsOpen(false);
+    show("success", "La sala fue eliminada correctamente");
     navigate("/dashboard");
   };
 
@@ -356,9 +407,58 @@ export default function RoomPage() {
               </svg>
               Invitar
             </button>
+
+            {/* Tareas 7/8: configuración SOLO para el anfitrión. Los invitados
+                no ven los botones de editar/eliminar. */}
+            {isHost && (
+              <button
+                ref={settingsBtnRef}
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-200 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+                Configuración
+              </button>
+            )}
           </div>
         </div>
       </header>
+
+      {/* Tarea 5: aviso de username duplicado (USERNAME_ALREADY_CONNECTED). */}
+      {duplicateUsername && (
+        <div
+          role="alert"
+          className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm font-medium text-amber-200 sm:px-6"
+        >
+          Ya estás conectado a esta sala desde otra pestaña o dispositivo.
+        </div>
+      )}
+
+      {/* ── Tarea 6: participantes conectados (chat-service) ─────────────── */}
+      {livePresence.length > 0 && (
+        <div className="border-b border-slate-800 bg-slate-950/60">
+          <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2 px-4 py-2 sm:px-6">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Conectados:
+            </span>
+            <ul className="flex flex-wrap items-center gap-1.5">
+              {livePresence.map((nombre) => (
+                <li
+                  key={nombre}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-100"
+                >
+                  <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  {nombre}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* ── Cuerpo: video + chat ────────────────────────────────────────── */}
       <main
@@ -374,10 +474,7 @@ export default function RoomPage() {
           <h2 id="region-stage" className="sr-only">
             Área de video y compartición de pantalla
           </h2>
-          <ul
-            role="list"
-            className="grid h-full flex-1 grid-cols-2 grid-rows-2 gap-3"
-          >
+          <ul className="grid h-full flex-1 grid-cols-2 grid-rows-2 gap-3">
             {Array.from({ length: GRID_SLOTS }).map((_, idx) => {
               const p = participants[idx];
               if (p) {
@@ -416,10 +513,13 @@ export default function RoomPage() {
         <div className="flex min-h-[420px] flex-col lg:max-h-[calc(100vh-200px)]">
           <ChatPanel
             currentUid={user?.uid ?? ""}
-            messages={messages}
+            messages={chatMessages}
             participants={participants}
-            status={status}
-            onSend={sendMessage}
+            status={chatStatus}
+            reconnected={chatReconnected}
+            historyStatus={historyStatus}
+            onRetryHistory={retryHistory}
+            onSend={sendChatMessage}
           />
         </div>
       </main>
@@ -489,6 +589,17 @@ export default function RoomPage() {
           </button>
         </div>
       </footer>
+
+      {/* ── US-07: configuración de sala (editar / eliminar) — anfitrión ── */}
+      {isHost && room && (
+        <RoomSettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          room={room}
+          onUpdated={handleRoomUpdated}
+          onDeleted={handleRoomDeletedByHost}
+        />
+      )}
     </>
   );
 }

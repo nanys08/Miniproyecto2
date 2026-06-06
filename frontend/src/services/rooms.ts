@@ -52,8 +52,42 @@ export async function joinRoomByCode(code: string): Promise<Room> {
   return res.room;
 }
 
+/** POST /api/rooms/join — une por código (el código viaja en el body). US-08. */
+export async function joinRoom(code: string): Promise<Room> {
+  const res = await api.post<{ room: Room }>("/rooms/join", { code });
+  return res.room;
+}
+
 /** GET /api/rooms/:roomId — obtiene una sala por su ID. */
 export async function getRoom(roomId: string): Promise<Room> {
   const res = await api.get<{ room: Room }>(`/rooms/${encodeURIComponent(roomId)}`);
   return res.room;
+}
+
+/** Respuesta de POST /api/rooms/:id/enter (valida sala + emite ticket WS). */
+export interface EnterRoomInfo {
+  roomId: string;
+  roomName: string;
+  username?: string;
+  /** Ticket firmado para el handshake del chat-service (null en dev sin secreto). */
+  chatTicket?: string | null;
+}
+
+/** POST /api/rooms/:roomId/enter — valida la sala e informa al WebSocket. US-08. */
+export async function enterRoom(roomId: string): Promise<EnterRoomInfo> {
+  return api.post<EnterRoomInfo>(`/rooms/${encodeURIComponent(roomId)}/enter`);
+}
+
+/** PUT /api/rooms/:roomId — edita el nombre de la sala (solo dueño). US-07. */
+export async function updateRoom(roomId: string, name: string): Promise<Room> {
+  const res = await api.put<{ room: Room }>(
+    `/rooms/${encodeURIComponent(roomId)}`,
+    { name }
+  );
+  return res.room;
+}
+
+/** DELETE /api/rooms/:roomId — elimina la sala (solo dueño). US-07. */
+export async function deleteRoom(roomId: string): Promise<void> {
+  await api.delete<void>(`/rooms/${encodeURIComponent(roomId)}`);
 }

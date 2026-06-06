@@ -1,0 +1,27 @@
+services:
+  # Backend de tiempo real (Repositorio 2). Se despliega como un servicio web
+  # APARTE del room-service, en su propia URL de Render. No necesita
+  # credenciales de Firebase: persiste delegando en el room-service.
+  - type: web
+    name: chat-service
+    runtime: node
+    # --include=dev necesario: TypeScript y @types/* están en devDependencies.
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # PORT lo asigna Render automáticamente, no fijar. Socket.IO escucha en
+      # ese mismo puerto bajo el path WS_PATH.
+      - key: WS_PATH
+        value: /ws/chat
+      # Orígenes del frontend (coma-separados). Ej.: https://tu-frontend.vercel.app
+      - key: CORS_ORIGIN
+        sync: false
+      # URL del room-service en Render (Repositorio 1) para persistir mensajes.
+      # Ej.: https://miniproyecto2-backend.onrender.com
+      - key: ROOM_SERVICE_URL
+        sync: false
+      # Secreto compartido — DEBE ser idéntico al INTERNAL_SECRET del room-service.
+      - key: INTERNAL_SECRET
+        sync: false

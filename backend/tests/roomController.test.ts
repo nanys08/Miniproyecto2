@@ -11,6 +11,7 @@ const createRoomMock = jest.fn();
 const getRoomsByUserMock = jest.fn();
 const getRoomByIdMock = jest.fn();
 const deleteRoomMock = jest.fn();
+const updateRoomNameMock = jest.fn();
 const getRoomByAccessCodeMock = jest.fn();
 const addParticipantMock = jest.fn();
 const removeParticipantMock = jest.fn();
@@ -24,6 +25,7 @@ jest.mock("../src/services/roomService", () => ({
   getRoomsByUser: (...args: unknown[]) => getRoomsByUserMock(...args),
   getRoomById: (...args: unknown[]) => getRoomByIdMock(...args),
   deleteRoom: (...args: unknown[]) => deleteRoomMock(...args),
+  updateRoomName: (...args: unknown[]) => updateRoomNameMock(...args),
   getRoomByAccessCode: (...args: unknown[]) => getRoomByAccessCodeMock(...args),
   addParticipant: (...args: unknown[]) => addParticipantMock(...args),
   removeParticipant: (...args: unknown[]) => removeParticipantMock(...args),
@@ -90,6 +92,7 @@ beforeEach(() => {
   getRoomsByUserMock.mockReset();
   getRoomByIdMock.mockReset();
   deleteRoomMock.mockReset();
+  updateRoomNameMock.mockReset();
   getRoomByAccessCodeMock.mockReset();
   addParticipantMock.mockReset();
   removeParticipantMock.mockReset();
@@ -286,6 +289,89 @@ describe("deleteRoom", () => {
     const req = baseReq({ params: { roomId: "room-abc123" } });
     const res = buildRes();
     await roomController.deleteRoom(req, res);
+    expect(res.statusCode).toBe(404);
+    expect((res.body as { error: string }).error).toBe("ROOM_NOT_FOUND");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/rooms/:roomId — updateRoom (US-07)
+// ─────────────────────────────────────────────────────────────────────────────
+describe("updateRoom", () => {
+  it("200 y devuelve la sala actualizada cuando el dueño edita el nombre", async () => {
+    getRoomByIdMock.mockResolvedValue(fakeRoom);
+    updateRoomNameMock.mockResolvedValue({ ...fakeRoom, name: "Sala Cálculo II" });
+    const req = baseReq({
+      params: { roomId: "room-abc123" },
+      body: { name: "Sala Cálculo II" },
+    });
+    const res = buildRes();
+    await roomController.updateRoom(req, res);
+    expect((res.body as { room: { name: string } }).room.name).toBe("Sala Cálculo II");
+    expect(updateRoomNameMock).toHaveBeenCalledWith("room-abc123", "Sala Cálculo II");
+  });
+
+  it("400 ROOM_NAME_INVALID si el nombre está vacío", async () => {
+    const req = baseReq({ params: { roomId: "room-abc123" }, body: { name: "  " } });
+    const res = buildRes();
+    await roomController.updateRoom(req, res);
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: string }).error).toBe("ROOM_NAME_INVALID");
+    expect(updateRoomNameMock).not.toHaveBeenCalled();
+  });
+
+  it("403 FORBIDDEN si el solicitante no es el dueño", async () => {
+    getRoomByIdMock.mockResolvedValue({ ...fakeRoom, ownerId: "otro-uid" });
+    const req = baseReq({
+      user: { uid: "intruso-uid" },
+      params: { roomId: "room-abc123" },
+      body: { name: "Hackeada" },
+    });
+    const res = buildRes();
+    await roomController.updateRoom(req, res);
+    expect(res.statusCode).toBe(403);
+    expect((res.body as { error: string }).error).toBe("FORBIDDEN");
+    expect(updateRoomNameMock).not.toHaveBeenCalled();
+  });
+
+  it("404 ROOM_NOT_FOUND si la sala no existe", async () => {
+    getRoomByIdMock.mockResolvedValue(null);
+    const req = baseReq({ params: { roomId: "no-existe" }, body: { name: "X Nombre" } });
+    const res = buildRes();
+    await roomController.updateRoom(req, res);
+    expect(res.statusCode).toBe(404);
+    expect((res.body as { error: string }).error).toBe("ROOM_NOT_FOUND");
+    expect(updateRoomNameMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/rooms/join — joinRoom (US-08)
+// ─────────────────────────────────────────────────────────────────────────────
+describe("joinRoom (POST)", () => {
+  it("200 con la sala cuando el código existe", async () => {
+    getRoomByAccessCodeMock.mockResolvedValue(fakeRoom);
+    const req = baseReq({ body: { code: "B6K3F2" } });
+    const res = buildRes();
+    await roomController.joinRoom(req, res);
+    expect((res.body as { room: typeof fakeRoom }).room.roomId).toBe("room-abc123");
+    expect(getRoomByAccessCodeMock).toHaveBeenCalledWith("B6K3F2");
+  });
+
+  it("400 ROOM_CODE_INVALID si falta el código", async () => {
+    const req = baseReq({ body: {} });
+    const res = buildRes();
+    await roomController.joinRoom(req, res);
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: string }).error).toBe("ROOM_CODE_INVALID");
+    expect(getRoomByAccessCodeMock).not.toHaveBeenCalled();
+  });
+
+  it("404 ROOM_NOT_FOUND si el código no existe", async () => {
+    getRoomByAccessCodeMock.mockResolvedValue(null);
+    const req = baseReq({ body: { code: "ZZZZZZ" } });
+    const res = buildRes();
+    await roomController.joinRoom(req, res);
     expect(res.statusCode).toBe(404);
     expect((res.body as { error: string }).error).toBe("ROOM_NOT_FOUND");
   });

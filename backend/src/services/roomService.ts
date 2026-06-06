@@ -182,6 +182,32 @@ export const removeParticipant = async (
 };
 
 /**
+ * Actualiza el nombre de una sala (US-07 — Editar y Eliminar Salas).
+ *
+ * Solo llamar tras verificar que el solicitante es el `ownerId` (lo hace el
+ * controller). Devuelve la sala con el nombre ya actualizado para que el
+ * controller la regrese al frontend y refresque el dashboard.
+ *
+ * @param roomId  ID de la sala a editar.
+ * @param name    Nuevo nombre (ya validado y trimmed en el controller).
+ * @returns       El documento `Room` actualizado.
+ * @throws {AppError} `ROOM_NOT_FOUND` (404) si la sala no existe.
+ */
+export const updateRoomName = async (
+  roomId: string,
+  name: string
+): Promise<Room> => {
+  const docRef = db.collection(ROOMS_COLLECTION).doc(roomId);
+  const doc = await docRef.get();
+  if (!doc.exists) {
+    throw new AppError(ErrorCode.ROOM_NOT_FOUND, 404);
+  }
+  await docRef.update({ name });
+  logger.info(`Sala renombrada: ${roomId} → "${name}"`);
+  return { ...(doc.data() as Room), name };
+};
+
+/**
  * Elimina una sala de Firestore.
  *
  * Solo llamar tras verificar que el solicitante es el `ownerId` (lo hace el controller).

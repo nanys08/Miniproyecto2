@@ -110,7 +110,8 @@ export default function DashboardPage() {
         />
         <ActionCard
           onClick={() => setOpenJoin(true)}
-          color="amber"
+          color="brand"
+          highlighted
           icon={
             <svg viewBox="0 0 24 24" fill="none" className="h-8 w-8">
               <path d="M15 7a3 3 0 11-6 0 3 3 0 016 0z" stroke="currentColor" strokeWidth="2" />
@@ -217,16 +218,26 @@ function RoomCard({ room, onEnter }: RoomCardProps) {
   return (
     <div className="flex h-full flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
-        <h3 className="text-base font-semibold text-slate-900">{room.name}</h3>
+        <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+          {/* Punto de estado — redundancia con el badge para no depender del color */}
+          <span
+            aria-hidden="true"
+            className={cn(
+              "inline-block h-2.5 w-2.5 shrink-0 rounded-full",
+              room.isActive ? "bg-emerald-500" : "bg-slate-400"
+            )}
+          />
+          {room.name}
+        </h3>
         <span
           className={cn(
-            "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium",
+            "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold",
             room.isActive
-              ? "bg-green-50 text-green-700 ring-1 ring-green-200"
-              : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+              ? "bg-emerald-50 text-emerald-800"
+              : "bg-slate-100 text-slate-500"
           )}
         >
-          {room.isActive ? "Activa" : "Finalizada"}
+          {room.isActive ? "Activa" : "Inactiva"}
         </span>
       </div>
 
@@ -260,9 +271,18 @@ interface ActionCardProps {
   icon: ReactNode;
   title: string;
   description: string;
+  /** Card recomendada — borde + fondo azul claro (design system). */
+  highlighted?: boolean;
 }
 
-function ActionCard({ onClick, color, icon, title, description }: ActionCardProps) {
+function ActionCard({
+  onClick,
+  color,
+  icon,
+  title,
+  description,
+  highlighted = false,
+}: ActionCardProps) {
   const colorMap = {
     brand: "text-brand-600",
     amber: "text-amber-500",
@@ -271,7 +291,12 @@ function ActionCard({ onClick, color, icon, title, description }: ActionCardProp
     <button
       type="button"
       onClick={onClick}
-      className="group flex flex-col items-start gap-3 rounded-xl border border-slate-200 bg-white p-6 text-left shadow-sm transition-all hover:border-brand-300 hover:shadow-md focus-visible:ring-brand-600 focus-visible:ring-offset-2"
+      className={cn(
+        "group flex flex-col items-start gap-3 rounded-xl border p-6 text-left shadow-sm transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2",
+        highlighted
+          ? "border-brand-200 bg-brand-50 hover:border-brand-400"
+          : "border-slate-200 bg-white hover:border-brand-300"
+      )}
     >
       <span className={colorMap[color]} aria-hidden="true">
         {icon}

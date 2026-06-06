@@ -45,6 +45,10 @@ export const ErrorCode = {
   ROOM_CODE_INVALID: "ROOM_CODE_INVALID",
   ROOM_NOT_FOUND: "ROOM_NOT_FOUND",
 
+  // Autorización — el solicitante está autenticado pero no tiene permiso
+  // sobre el recurso (no es dueño / no es miembro). Mapea a HTTP 403.
+  FORBIDDEN: "FORBIDDEN",
+
   // Genérico — usar cuando el origen es interno (Firebase, red, etc.)
   INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;
@@ -52,8 +56,18 @@ export const ErrorCode = {
 /** Tipo unión de los valores de `ErrorCode`. */
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
-/** Forma del body devuelto por cualquier error de la API. */
+/**
+ * Forma uniforme del body devuelto por **cualquier** error de la API.
+ *
+ * Contrato de accesibilidad/UX (sprint de soporte técnico):
+ *  - `success: false` → bandera booleana estable para que el cliente
+ *    distinga éxito de error sin inspeccionar el status HTTP.
+ *  - `error`          → código estable legible por máquina (i18n, flujo).
+ *  - `message`        → texto en español, claro y listo para anunciar en un
+ *    `role="alert"` / `aria-live`. Nunca un código pelado tipo `"500"`.
+ */
 export interface ApiErrorBody {
+  success: false;
   error: ErrorCodeValue;
   message: string;
 }
@@ -82,6 +96,7 @@ export const DEFAULT_MESSAGES: Record<ErrorCodeValue, string> = {
   ROOM_NAME_INVALID: "El nombre de la sala es inválido o está vacío",
   ROOM_CODE_INVALID: "El código de acceso es inválido",
   ROOM_NOT_FOUND: "Sala no encontrada",
+  FORBIDDEN: "No tienes permiso para realizar esta acción",
   INTERNAL_ERROR: "Error interno del servidor",
 };
 
@@ -116,6 +131,7 @@ export const buildError = (
   code: ErrorCodeValue,
   message?: string
 ): ApiErrorBody => ({
+  success: false,
   error: code,
   message: message ?? DEFAULT_MESSAGES[code],
 });

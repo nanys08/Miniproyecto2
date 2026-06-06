@@ -4,6 +4,8 @@ interface LogoProps {
   className?: string;
   showText?: boolean;
   size?: "sm" | "md" | "lg";
+  /** Clase del texto "EstudioColab" (p. ej. `text-white` sobre el header navy). */
+  textClassName?: string;
 }
 
 const sizeMap = {
@@ -18,6 +20,7 @@ export default function Logo({
   className,
   showText = true,
   size = "md",
+  textClassName,
 }: LogoProps) {
   const s = sizeMap[size];
   return (
@@ -65,7 +68,7 @@ export default function Logo({
         </svg>
       </div>
       {showText && (
-        <span className={cn("font-bold text-slate-900", s.text)}>
+        <span className={cn("font-bold text-slate-900", s.text, textClassName)}>
           EstudioColab
         </span>
       )}

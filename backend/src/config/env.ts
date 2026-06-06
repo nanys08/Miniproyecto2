@@ -27,6 +27,14 @@ export const env = {
   port: parseInt(process.env.PORT || "3000", 10),
   nodeEnv: process.env.NODE_ENV || "development",
   corsOrigin: parseCorsOrigin(process.env.CORS_ORIGIN),
+  // Integración con el chat-service (Repositorio 2). El room-service le
+  // "informa" cuando un usuario entra o cuando una sala se elimina (Tarea 5).
+  // Si `chatServiceUrl` está vacío, las notificaciones se omiten en silencio
+  // (el room-service sigue funcionando aunque el chat-service esté caído).
+  chatService: {
+    url: process.env.CHAT_SERVICE_URL || "",
+    internalSecret: process.env.INTERNAL_SECRET || "",
+  },
   firebase: {
     apiKey: process.env.FIREBASE_API_KEY!,
     authDomain: process.env.FIREBASE_AUTH_DOMAIN!,

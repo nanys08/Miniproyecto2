@@ -13,7 +13,7 @@
  * accesible, conserva datos y permite reintentar — US-07 Esc4).
  */
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import Modal from "@/components/Modal";
 import Button from "@/components/Button";
 import { cn } from "@/utils/cn";
@@ -32,6 +32,8 @@ interface RoomSettingsModalProps {
   room: Room;
   onUpdated: (room: Room) => void;
   onDeleted: () => void;
+  /** Elemento al que devolver el foco al cerrar (WCAG 2.4.3). */
+  returnFocusRef?: RefObject<HTMLElement>;
 }
 
 export default function RoomSettingsModal({
@@ -40,6 +42,7 @@ export default function RoomSettingsModal({
   room,
   onUpdated,
   onDeleted,
+  returnFocusRef,
 }: RoomSettingsModalProps) {
   const [view, setView] = useState<View>("menu");
 
@@ -152,7 +155,7 @@ export default function RoomSettingsModal({
       : "Configuración de sala";
 
   return (
-    <Modal open={open} onClose={handleClose} title={title}>
+    <Modal open={open} onClose={handleClose} title={title} returnFocusRef={returnFocusRef}>
       {/* ── Vista: menú de opciones ─────────────────────────────────── */}
       {view === "menu" && (
         <div className="flex flex-col gap-3">

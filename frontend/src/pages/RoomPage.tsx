@@ -38,6 +38,7 @@ import RoomSettingsModal from "@/components/rooms/RoomSettingsModal";
 import ErrorState from "@/components/ErrorState";
 import Loader from "@/components/Loader";
 import Avatar from "@/components/Avatar";
+import Button from "@/components/Button";
 
 /** Cuántos tiles vacíos rellenamos para mantener el grid 2x2. */
 const GRID_SLOTS = 4;
@@ -108,16 +109,22 @@ export default function RoomPage() {
   // ── Presencia y ciclo de vida vía chat-service (Repo 2) ────────────────
   const { show } = useToast();
   const isHost = !!user && !!room && room.ownerId === user.uid;
+  const isHostRef = useRef(isHost);
+  isHostRef.current = isHost;
 
   // Tarea 9: salir de la sala cuando el anfitrión la elimina (ROOM_DELETED).
   // Guard para no disparar dos veces (el host también recibe el evento).
+  // En vez de navegar de inmediato, mostramos una pantalla "La sesión
+  // finalizó" para que el participante entienda por qué fue desconectado.
   const deletedRef = useRef(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  // El anfitrión que elimina maneja su propio flujo (toast + navegación) y NO
+  // debe ver la pantalla de "sesión finalizó" (ver isHostRef arriba).
   const handleRoomDeleted = useCallback(() => {
-    if (deletedRef.current) return;
+    if (deletedRef.current || isHostRef.current) return;
     deletedRef.current = true;
-    show("info", "La sala fue eliminada");
-    navigate("/dashboard");
-  }, [show, navigate]);
+    setSessionEnded(true);
+  }, []);
 
   // Chat-service (puerto 8081, /ws/chat): mensajería en tiempo real (US-10),
   // presencia de conectados, username duplicado y ROOM_DELETED.
@@ -139,8 +146,33 @@ export default function RoomPage() {
   });
 
   // ── Configuración de sala (solo anfitrión) ─────────────────────────────
+  // La configuración se abre desde el menú "Más" de la barra inferior.
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsBtnRef = useRef<HTMLButtonElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Cierre del menú "Más" con clic fuera o Escape (navegación por teclado).
+  useEffect(() => {
+    if (!moreOpen) return;
+    function onPointer(e: MouseEvent) {
+      if (!moreMenuRef.current?.contains(e.target as Node)) {
+        setMoreOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setMoreOpen(false);
+        moreBtnRef.current?.focus();
+      }
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [moreOpen]);
 
   const handleRoomUpdated = (updated: Room) => {
     setRoom(updated);
@@ -325,6 +357,41 @@ export default function RoomPage() {
     chatStatus === "error";
 
   // ── Render ──────────────────────────────────────────────────────────────
+  // El anfitrión eliminó la sala: pantalla de cierre de sesión (Tarea 9).
+  if (sessionEnded) {
+    return (
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center p-6"
+      >
+        <div
+          role="alert"
+          className="flex w-full flex-col items-center gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-8 text-center"
+        >
+          <span
+            aria-hidden="true"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/15 text-red-400"
+          >
+            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18.36 6.64A9 9 0 1 1 5.64 6.64" />
+              <line x1="12" y1="2" x2="12" y2="12" />
+            </svg>
+          </span>
+          <div>
+            <h1 className="text-xl font-bold text-white">La sesión finalizó</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              El anfitrión eliminó esta sala. Has sido desconectado.
+            </p>
+          </div>
+          <Button onClick={() => navigate("/dashboard")}>
+            Volver al dashboard
+          </Button>
+        </div>
+      </main>
+    );
+  }
+
   if (loadError) {
     return (
       <main
@@ -421,23 +488,6 @@ export default function RoomPage() {
               </svg>
               Invitar
             </button>
-
-            {/* Tareas 7/8: configuración SOLO para el anfitrión. Los invitados
-                no ven los botones de editar/eliminar. */}
-            {isHost && (
-              <button
-                ref={settingsBtnRef}
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-200 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-                Configuración
-              </button>
-            )}
           </div>
         </div>
       </header>
@@ -590,18 +640,61 @@ export default function RoomPage() {
                 </button>
               );
             })}
-            <button
-              type="button"
-              aria-label="Más opciones"
-              className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            >
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="1" />
-                <circle cx="19" cy="12" r="1" />
-                <circle cx="5" cy="12" r="1" />
-              </svg>
-              <span className="hidden sm:inline">Más</span>
-            </button>
+            {/* Menú "Más": contiene la configuración de la sala (anfitrión).
+                Los ítems son <button> reales → navegables con Tab. */}
+            <div className="relative" ref={moreMenuRef}>
+              <button
+                ref={moreBtnRef}
+                type="button"
+                aria-label="Más opciones"
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+                onClick={() => setMoreOpen((o) => !o)}
+                className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="1" />
+                  <circle cx="19" cy="12" r="1" />
+                  <circle cx="5" cy="12" r="1" />
+                </svg>
+                <span className="hidden sm:inline">Más</span>
+              </button>
+
+              {moreOpen && (
+                <div
+                  role="menu"
+                  aria-label="Más opciones"
+                  className="absolute bottom-full left-0 z-20 mb-2 min-w-[230px] rounded-lg border border-slate-700 bg-slate-900 p-1.5 shadow-xl"
+                >
+                  {isHost ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setSettingsOpen(true);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                      </svg>
+                      <span className="flex flex-col">
+                        Configuración de sala
+                        <span className="text-xs font-normal text-slate-400">
+                          Editar nombre o eliminar
+                        </span>
+                      </span>
+                    </button>
+                  ) : (
+                    <p className="px-3 py-2.5 text-sm text-slate-400">
+                      No hay opciones adicionales disponibles.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <button
@@ -631,6 +724,7 @@ export default function RoomPage() {
           room={room}
           onUpdated={handleRoomUpdated}
           onDeleted={handleRoomDeletedByHost}
+          returnFocusRef={moreBtnRef}
         />
       )}
     </>

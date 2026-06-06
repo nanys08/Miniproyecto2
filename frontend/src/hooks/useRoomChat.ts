@@ -55,6 +55,8 @@ interface Result {
   historyStatus: HistoryStatus;
   /** Reintenta la carga del historial tras un error (US-11 Esc3). */
   retryHistory: () => void;
+  /** `true` si esta sesión fue reemplazada por otra pestaña/dispositivo. */
+  sessionReplaced: boolean;
 }
 
 export function useRoomChat({
@@ -69,8 +71,10 @@ export function useRoomChat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [reconnected, setReconnected] = useState(false);
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus>("loading");
+  const [sessionReplaced, setSessionReplaced] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
+  const replacedRef = useRef(false);
   const onDeletedRef = useRef(onRoomDeleted);
   onDeletedRef.current = onRoomDeleted;
   const wasConnectedRef = useRef(false);
@@ -122,7 +126,9 @@ export function useRoomChat({
     setParticipants([]);
     setMessages([]);
     setHistoryStatus("loading");
+    setSessionReplaced(false);
     wasConnectedRef.current = false;
+    replacedRef.current = false;
 
     (async () => {
       // Validar sala + obtener ticket (best-effort: dev devuelve null).
@@ -176,8 +182,23 @@ export function useRoomChat({
         }
       });
 
+      // La sesión fue tomada por otra pestaña/dispositivo del mismo usuario:
+      // el servidor nos expulsa. Mostramos un aviso claro en vez de quedarnos
+      // "Reconectando…" indefinidamente.
+      socket.on("session_replaced", () => {
+        console.warn("[chat-service] sesión reemplazada por otra pestaña");
+        replacedRef.current = true;
+        setSessionReplaced(true);
+        setStatus("error");
+      });
+
       socket.on("disconnect", (reason: string) => {
         if (reason === "io client disconnect") return;
+        // Si nos reemplazó otra pestaña, NO intentamos reconectar en bucle.
+        if (replacedRef.current) {
+          setStatus("error");
+          return;
+        }
         // US-10 Esc4: desconexión temporal → "Reconectando chat…".
         setStatus("reconnecting");
       });
@@ -263,5 +284,6 @@ export function useRoomChat({
     reconnected,
     historyStatus,
     retryHistory,
+    sessionReplaced,
   };
 }

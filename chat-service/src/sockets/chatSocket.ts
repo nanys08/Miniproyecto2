@@ -115,9 +115,14 @@ export const initChatSocket = (io: Server): void => {
         );
         return next(new Error(ErrorCode.USERNAME_ALREADY_CONNECTED));
       }
-      // Reconexión: cerrar el socket viejo para no dejar fantasmas.
+      // Reconexión: cerrar el socket viejo para no dejar fantasmas. Antes de
+      // expulsarlo le avisamos con `session_replaced` para que la pestaña
+      // anterior muestre un aviso claro (en vez de quedarse "Reconectando…").
       const stale = ioRef?.sockets.sockets.get(existing.socketId);
-      if (stale) stale.disconnect(true);
+      if (stale) {
+        stale.emit("session_replaced", { roomId, username });
+        stale.disconnect(true);
+      }
       presence.removeBySocketId(existing.socketId);
       logger.info(`Reconexión de "${username}" en sala ${roomId}`);
     }

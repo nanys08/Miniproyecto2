@@ -130,6 +130,7 @@ export default function RoomPage() {
     reconnected: chatReconnected,
     historyStatus,
     retryHistory,
+    sessionReplaced,
   } = useRoomChat({
     roomId,
     username: user?.username,
@@ -435,6 +436,25 @@ export default function RoomPage() {
           className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm font-medium text-amber-200 sm:px-6"
         >
           Ya estás conectado a esta sala desde otra pestaña o dispositivo.
+        </div>
+      )}
+
+      {/* Aviso: esta sesión fue reemplazada al abrir la sala en otra pestaña. */}
+      {sessionReplaced && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-amber-500/40 bg-amber-500/15 px-4 py-2 text-center text-sm font-medium text-amber-100 sm:px-6"
+        >
+          <span>
+            Abriste esta sala en otra pestaña. Esta sesión del chat se desconectó.
+          </span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-md bg-amber-400/20 px-3 py-1 font-semibold text-amber-50 underline-offset-2 hover:bg-amber-400/30 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+          >
+            Reconectar aquí
+          </button>
         </div>
       )}
 

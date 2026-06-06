@@ -328,6 +328,11 @@ hablar directamente con Firestore.
               example: "Sala Matemáticas",
               description: "Nombre descriptivo (1-100 caracteres).",
             },
+            description: {
+              type: "string",
+              example: "Cálculo III — grupo 2",
+              description: "Descripción opcional (0-200 caracteres).",
+            },
             ownerId: {
               type: "string",
               example: "abc123",

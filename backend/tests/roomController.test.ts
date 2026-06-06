@@ -11,7 +11,7 @@ const createRoomMock = jest.fn();
 const getRoomsByUserMock = jest.fn();
 const getRoomByIdMock = jest.fn();
 const deleteRoomMock = jest.fn();
-const updateRoomNameMock = jest.fn();
+const updateRoomMock = jest.fn();
 const getRoomByAccessCodeMock = jest.fn();
 const addParticipantMock = jest.fn();
 const removeParticipantMock = jest.fn();
@@ -25,7 +25,7 @@ jest.mock("../src/services/roomService", () => ({
   getRoomsByUser: (...args: unknown[]) => getRoomsByUserMock(...args),
   getRoomById: (...args: unknown[]) => getRoomByIdMock(...args),
   deleteRoom: (...args: unknown[]) => deleteRoomMock(...args),
-  updateRoomName: (...args: unknown[]) => updateRoomNameMock(...args),
+  updateRoom: (...args: unknown[]) => updateRoomMock(...args),
   getRoomByAccessCode: (...args: unknown[]) => getRoomByAccessCodeMock(...args),
   addParticipant: (...args: unknown[]) => addParticipantMock(...args),
   removeParticipant: (...args: unknown[]) => removeParticipantMock(...args),
@@ -92,7 +92,7 @@ beforeEach(() => {
   getRoomsByUserMock.mockReset();
   getRoomByIdMock.mockReset();
   deleteRoomMock.mockReset();
-  updateRoomNameMock.mockReset();
+  updateRoomMock.mockReset();
   getRoomByAccessCodeMock.mockReset();
   addParticipantMock.mockReset();
   removeParticipantMock.mockReset();
@@ -142,7 +142,7 @@ describe("createRoom", () => {
     await roomController.createRoom(req, res);
     expect(res.statusCode).toBe(201);
     expect((res.body as { room: unknown }).room).toEqual(fakeRoom);
-    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Matemáticas", undefined);
+    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Matemáticas", undefined, undefined);
   });
 
   it("trimmea el nombre antes de guardar", async () => {
@@ -150,7 +150,7 @@ describe("createRoom", () => {
     const req = baseReq({ body: { name: "  Sala Física  " } });
     const res = buildRes();
     await roomController.createRoom(req, res);
-    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Física", undefined);
+    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Física", undefined, undefined);
   });
 
   it("pasa el accessCode al service cuando viene en el body", async () => {
@@ -158,7 +158,7 @@ describe("createRoom", () => {
     const req = baseReq({ body: { name: "Sala Mate", accessCode: "B6K3F2" } });
     const res = buildRes();
     await roomController.createRoom(req, res);
-    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Mate", "B6K3F2");
+    expect(createRoomMock).toHaveBeenCalledWith("owner-uid", "Sala Mate", "B6K3F2", undefined);
   });
 
   it("500 INTERNAL_ERROR cuando el service lanza error desconocido", async () => {
@@ -300,7 +300,7 @@ describe("deleteRoom", () => {
 describe("updateRoom", () => {
   it("200 y devuelve la sala actualizada cuando el dueño edita el nombre", async () => {
     getRoomByIdMock.mockResolvedValue(fakeRoom);
-    updateRoomNameMock.mockResolvedValue({ ...fakeRoom, name: "Sala Cálculo II" });
+    updateRoomMock.mockResolvedValue({ ...fakeRoom, name: "Sala Cálculo II" });
     const req = baseReq({
       params: { roomId: "room-abc123" },
       body: { name: "Sala Cálculo II" },
@@ -308,7 +308,7 @@ describe("updateRoom", () => {
     const res = buildRes();
     await roomController.updateRoom(req, res);
     expect((res.body as { room: { name: string } }).room.name).toBe("Sala Cálculo II");
-    expect(updateRoomNameMock).toHaveBeenCalledWith("room-abc123", "Sala Cálculo II");
+    expect(updateRoomMock).toHaveBeenCalledWith("room-abc123", { name: "Sala Cálculo II", description: undefined });
   });
 
   it("400 ROOM_NAME_INVALID si el nombre está vacío", async () => {
@@ -317,7 +317,7 @@ describe("updateRoom", () => {
     await roomController.updateRoom(req, res);
     expect(res.statusCode).toBe(400);
     expect((res.body as { error: string }).error).toBe("ROOM_NAME_INVALID");
-    expect(updateRoomNameMock).not.toHaveBeenCalled();
+    expect(updateRoomMock).not.toHaveBeenCalled();
   });
 
   it("403 FORBIDDEN si el solicitante no es el dueño", async () => {
@@ -331,7 +331,7 @@ describe("updateRoom", () => {
     await roomController.updateRoom(req, res);
     expect(res.statusCode).toBe(403);
     expect((res.body as { error: string }).error).toBe("FORBIDDEN");
-    expect(updateRoomNameMock).not.toHaveBeenCalled();
+    expect(updateRoomMock).not.toHaveBeenCalled();
   });
 
   it("404 ROOM_NOT_FOUND si la sala no existe", async () => {
@@ -341,7 +341,7 @@ describe("updateRoom", () => {
     await roomController.updateRoom(req, res);
     expect(res.statusCode).toBe(404);
     expect((res.body as { error: string }).error).toBe("ROOM_NOT_FOUND");
-    expect(updateRoomNameMock).not.toHaveBeenCalled();
+    expect(updateRoomMock).not.toHaveBeenCalled();
   });
 });
 

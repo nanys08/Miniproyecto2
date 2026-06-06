@@ -60,7 +60,7 @@ export const createRoom = async (
 ): Promise<void> => {
   try {
     const { uid } = req.user!;
-    const { name, accessCode } = req.body ?? {};
+    const { name, accessCode, description } = req.body ?? {};
 
     // Validar nombre obligatorio
     if (
@@ -85,7 +85,8 @@ export const createRoom = async (
     }
 
     const code = typeof accessCode === "string" ? accessCode : undefined;
-    const room = await roomService.createRoom(uid, trimmedName, code);
+    const desc = typeof description === "string" ? description : undefined;
+    const room = await roomService.createRoom(uid, trimmedName, code, desc);
     res.status(201).json({ room });
   } catch (err) {
     sendError(res, err, "createRoom");
@@ -316,7 +317,12 @@ export const updateRoom = async (
       return;
     }
 
-    const updated = await roomService.updateRoomName(roomId, trimmedName);
+    const { description } = (req.body ?? {}) as { description?: string };
+    const updated = await roomService.updateRoom(roomId, {
+      name: trimmedName,
+      description:
+        typeof description === "string" ? description.trim().slice(0, 200) : undefined,
+    });
     res.json({ room: updated });
   } catch (err) {
     sendError(res, err, "updateRoom");

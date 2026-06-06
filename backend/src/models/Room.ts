@@ -17,6 +17,8 @@ export interface Room {
   roomId: string;
   /** Nombre descriptivo de la sala (1-100 caracteres). */
   name: string;
+  /** Descripción opcional de la sala (0-200 caracteres). */
+  description?: string;
   /** UID Firebase del usuario que creó la sala. */
   ownerId: string;
   /**

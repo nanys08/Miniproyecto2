@@ -348,6 +348,7 @@ router.post("/:roomId/enter", verifyToken, roomController.enterRoom);
  *             required: [name]
  *             properties:
  *               name: { type: string, example: Sala Cálculo II }
+ *               description: { type: string, example: Cálculo III — grupo 2 }
  *     responses:
  *       200:
  *         description: Sala actualizada.

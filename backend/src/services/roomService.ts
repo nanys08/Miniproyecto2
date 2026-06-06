@@ -43,13 +43,15 @@ const generateAccessCode = (): string => {
 export const createRoom = async (
   ownerId: string,
   name: string,
-  accessCode?: string
+  accessCode?: string,
+  description?: string
 ): Promise<Room> => {
   const docRef = db.collection(ROOMS_COLLECTION).doc(); // ID único auto-generado
 
   const room: Room = {
     roomId: docRef.id,
     name,
+    description: description?.trim() ? description.trim() : "",
     ownerId,
     accessCode: accessCode && accessCode.trim() ? accessCode.trim().toUpperCase() : generateAccessCode(),
     createdAt: new Date(),
@@ -182,29 +184,32 @@ export const removeParticipant = async (
 };
 
 /**
- * Actualiza el nombre de una sala (US-07 — Editar y Eliminar Salas).
+ * Actualiza nombre y/o descripción de una sala (US-07 — Editar y Eliminar Salas).
  *
  * Solo llamar tras verificar que el solicitante es el `ownerId` (lo hace el
- * controller). Devuelve la sala con el nombre ya actualizado para que el
- * controller la regrese al frontend y refresque el dashboard.
+ * controller). Devuelve la sala ya actualizada para que el controller la
+ * regrese al frontend y refresque el dashboard.
  *
  * @param roomId  ID de la sala a editar.
- * @param name    Nuevo nombre (ya validado y trimmed en el controller).
+ * @param fields  Campos a actualizar (`name` y/o `description`, ya validados).
  * @returns       El documento `Room` actualizado.
  * @throws {AppError} `ROOM_NOT_FOUND` (404) si la sala no existe.
  */
-export const updateRoomName = async (
+export const updateRoom = async (
   roomId: string,
-  name: string
+  fields: { name?: string; description?: string }
 ): Promise<Room> => {
   const docRef = db.collection(ROOMS_COLLECTION).doc(roomId);
   const doc = await docRef.get();
   if (!doc.exists) {
     throw new AppError(ErrorCode.ROOM_NOT_FOUND, 404);
   }
-  await docRef.update({ name });
-  logger.info(`Sala renombrada: ${roomId} → "${name}"`);
-  return { ...(doc.data() as Room), name };
+  const update: Record<string, unknown> = {};
+  if (typeof fields.name === "string") update.name = fields.name;
+  if (typeof fields.description === "string") update.description = fields.description;
+  await docRef.update(update);
+  logger.info(`Sala actualizada: ${roomId} (${Object.keys(update).join(", ")})`);
+  return { ...(doc.data() as Room), ...update };
 };
 
 /**

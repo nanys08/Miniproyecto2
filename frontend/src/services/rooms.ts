@@ -11,6 +11,8 @@ import { api } from "@/services/api";
 export interface Room {
   roomId: string;
   name: string;
+  /** Descripción opcional de la sala. */
+  description?: string;
   ownerId: string;
   accessCode: string;
   /** ISO 8601 o Firestore Timestamp serializado. */
@@ -78,11 +80,14 @@ export async function enterRoom(roomId: string): Promise<EnterRoomInfo> {
   return api.post<EnterRoomInfo>(`/rooms/${encodeURIComponent(roomId)}/enter`);
 }
 
-/** PUT /api/rooms/:roomId — edita el nombre de la sala (solo dueño). US-07. */
-export async function updateRoom(roomId: string, name: string): Promise<Room> {
+/** PUT /api/rooms/:roomId — edita nombre/descripción de la sala (solo dueño). US-07. */
+export async function updateRoom(
+  roomId: string,
+  fields: { name: string; description?: string }
+): Promise<Room> {
   const res = await api.put<{ room: Room }>(
     `/rooms/${encodeURIComponent(roomId)}`,
-    { name }
+    fields
   );
   return res.room;
 }

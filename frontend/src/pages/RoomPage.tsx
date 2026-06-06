@@ -88,9 +88,9 @@ export default function RoomPage() {
 
   // ── Suscribirse al chat ─────────────────────────────────────────────────
   // Socket heredado (puerto 3000): presencia del grid de video + media (US-09).
+  // Su estado de conexión NO se muestra en el header: el indicador refleja el
+  // chat-service (lo relevante para el usuario).
   const {
-    status,
-    statusLabel,
     presentUsers,
     leaveRoom,
     mediaStates,
@@ -308,8 +308,21 @@ export default function RoomPage() {
     },
   ];
 
+  // El indicador del header refleja el estado del CHAT-SERVICE (no el socket
+  // heredado), que es la conexión que le importa al usuario.
+  const CHAT_STATUS_LABELS: Record<string, string> = {
+    idle: "Preparando…",
+    connecting: "Conectando…",
+    connected: "Conectado",
+    reconnecting: "Reconectando…",
+    offline: "Sin conexión",
+    error: sessionReplaced ? "Sesión movida" : "Desconectado",
+  };
+  const chatStatusLabel = CHAT_STATUS_LABELS[chatStatus] ?? "—";
   const isReconnectingHeader =
-    status === "reconnecting" || status === "offline" || status === "error";
+    chatStatus === "reconnecting" ||
+    chatStatus === "offline" ||
+    chatStatus === "error";
 
   // ── Render ──────────────────────────────────────────────────────────────
   if (loadError) {
@@ -362,7 +375,7 @@ export default function RoomPage() {
               <h1 className="truncate text-lg font-semibold text-white sm:text-xl">
                 {room?.name ?? "Cargando…"}
               </h1>
-              <ConnectionBadge status={status} label={statusLabel} />
+              <ConnectionBadge status={chatStatus} label={chatStatusLabel} />
             </div>
             <p className="mt-0.5 text-xs text-slate-400">
               {room?.isActive !== false && (

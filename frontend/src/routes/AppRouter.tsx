@@ -6,6 +6,7 @@ import HomePage from "@/pages/HomePage";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import DashboardPage from "@/pages/DashboardPage";
+import MyRoomsPage from "@/pages/MyRoomsPage";
 import RoomPage from "@/pages/RoomPage";
 import ProfilePage from "@/pages/ProfilePage";
 import NotFoundPage from "@/pages/NotFoundPage";
@@ -27,6 +28,7 @@ export default function AppRouter() {
       <Route element={<ProtectedRoute />}>
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/mis-salas" element={<MyRoomsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>
 

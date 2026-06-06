@@ -45,7 +45,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    to: "/dashboard?tab=mis",
+    to: "/mis-salas",
     label: "Mis salas",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">

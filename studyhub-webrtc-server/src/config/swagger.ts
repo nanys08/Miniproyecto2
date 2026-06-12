@@ -62,6 +62,9 @@ rooms = {
 | \`signal\` | client → server | \`{ to, signal }\` | Transporta offer/answer/ICE. El server lo reenvía **sin modificar** a \`to\`. |
 | \`signal\` | server → client | \`{ from, signal }\` | El mismo payload, anexando quién lo envió. |
 | \`stream-started\` | client → server | \`{ }\` | El peer ya tiene su media local lista. Solo para logs/evidencia. |
+| \`permissions-granted\` | client → server | \`{ audio?, video? }\` | El navegador concedió cámara/micrófono. Log \`Permisos obtenidos\`. |
+| \`connection-state\` | client → server | \`{ peerUid?, peerSocketId?, state }\` | Estado de la \`RTCPeerConnection\`: \`connected\` (conexión iniciada), \`failed\` (fallo), \`disconnected\`. |
+| \`connection-error\` | server → sala | \`{ uid?, peerUid?, state }\` | Un peer reportó un **fallo de conexión** WebRTC; la UI puede reflejarlo. |
 | \`media-state\` | client → server | \`{ micOn?, camOn? }\` | Estado de micrófono/cámara (agregado). Se guarda en el peer y se reenvía a la sala. |
 | \`media-state\` | server → sala | \`{ socketId, uid?, micOn, camOn }\` | Cambio de mic/cam de un peer. Los nuevos joiners reciben el estado en \`introduction\`/\`participant_joined\`. |
 | \`camera_on\` / \`camera_off\` | client → server **y** server → sala | \`{ id, uid? }\` | Evento AV **discreto** de cámara. El front puede emitirlo o escucharlo para actualizar la UI. |
@@ -96,12 +99,15 @@ Cada acción se registra con timestamp ISO:
 [ts] INFO:  Usuario conectado: <socketId>
 [ts] INFO:  Reconexión: <username> (<socketId>) recuperó la sala "<roomId>"
 [ts] INFO:  Introduction: <username> (<socketId>) entró a la sala "<roomId>". Conectados ahora: N
+[ts] INFO:  Permisos obtenidos: <username> → cámara + micrófono
 [ts] INFO:  Inicio de stream: <username> en la sala "<roomId>"
 [ts] INFO:  Signal [OFFER]  reenviada: <socketIdA> → <socketIdB>
 [ts] INFO:  Signal [ANSWER] reenviada: <socketIdB> → <socketIdA>
 [ts] INFO:  Signal [ICE]    reenviada: <socketIdA> → <socketIdB>
+[ts] INFO:  Conexión iniciada (P2P establecida): <username> ↔ <peer>
 [ts] INFO:  Estado micrófono: <username> (<socketId>) → ON | OFF
 [ts] INFO:  Estado cámara: <username> (<socketId>) → ON | OFF
+[ts] ERROR: Fallo de conexión WebRTC: <username> ↔ <peer>
 [ts] ERROR: Error multimedia: <username> — <reason>
 [ts] INFO:  Usuario desconectado: <username> (<socketId>) — motivo: <reason>
 \`\`\`

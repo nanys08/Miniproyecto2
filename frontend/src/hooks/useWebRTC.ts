@@ -136,6 +136,8 @@ export function useWebRTC({
   const mediaStateRef = useRef({ micOn: true, camOn: true });
   /** Motivo de error de medios pendiente de reportar al server al conectar. */
   const mediaErrorRef = useRef<string | null>(null);
+  /** Permisos concedidos por getUserMedia, a reportar al conectar (Tarea 3). */
+  const permissionsRef = useRef<{ audio: boolean; video: boolean } | null>(null);
 
   // Callbacks/identidad estables para no recrear listeners en cada render.
   const onMediaChangeRef = useRef(onLocalMediaChange);
@@ -251,10 +253,21 @@ export function useWebRTC({
       };
 
       pc.onconnectionstatechange = () => {
+        const st = pc.connectionState;
+        // Reportar al signaling server: conexión establecida / fallo /
+        // interrupción (Tarea 1: registro de fallos de conexión WebRTC).
+        const s = socketRef.current;
         if (
-          pc.connectionState === "failed" ||
-          pc.connectionState === "closed"
+          s?.connected &&
+          (st === "connected" || st === "failed" || st === "disconnected")
         ) {
+          s.emit("connection-state", {
+            peerUid: ctx.uid,
+            peerSocketId: remoteSocketId,
+            state: st,
+          });
+        }
+        if (st === "failed" || st === "closed") {
           closePeer(remoteSocketId);
         }
       };
@@ -308,6 +321,11 @@ export function useWebRTC({
       if (stream) {
         localStreamRef.current = stream;
         cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
+        // Permisos realmente concedidos (audio-only fallback → video:false).
+        permissionsRef.current = {
+          audio: stream.getAudioTracks().length > 0,
+          video: stream.getVideoTracks().length > 0,
+        };
         setLocalStream(stream);
       }
       // El intento terminó (con o sin media): el socket ya puede arrancar.
@@ -322,6 +340,7 @@ export function useWebRTC({
       screenTrackRef.current?.stop();
       screenTrackRef.current = null;
       mediaErrorRef.current = null;
+      permissionsRef.current = null;
       mediaStateRef.current = { micOn: true, camOn: true };
       setLocalStream(null);
       setScreenStream(null);
@@ -353,7 +372,10 @@ export function useWebRTC({
         micOn: m,
         camOn: c,
       });
-      // Evidencia de que el stream local está listo (o reporte de error).
+      // Permisos concedidos (Tarea 3), evidencia de stream listo, o error.
+      if (permissionsRef.current) {
+        socket.emit("permissions-granted", permissionsRef.current);
+      }
       if (localStreamRef.current) socket.emit("stream-started");
       if (mediaErrorRef.current) {
         socket.emit("media-error", { reason: mediaErrorRef.current });

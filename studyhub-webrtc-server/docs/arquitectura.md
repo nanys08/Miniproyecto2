@@ -120,6 +120,26 @@ mantenerse estable** mientras hay streams activos:
 - **Limpieza determinista:** al `disconnect` se emite `peer-left` y el peer se
   borra de la sala; si la sala queda vacía, se libera de memoria.
 
+### Manejo de errores y diagnóstico
+
+El servidor registra (y, cuando aplica, informa a la sala) el ciclo de vida
+completo de la conexión:
+
+| Situación | Quién la detecta | Evento / Log |
+|---|---|---|
+| Permisos de cámara/micro concedidos | cliente (`getUserMedia`) | `permissions-granted` → log `Permisos obtenidos` |
+| Conexión P2P establecida | cliente (`pc.connectionState=connected`) | `connection-state` → log `Conexión iniciada (P2P establecida)` |
+| **Fallo de conexión P2P** | cliente (`pc.connectionState=failed`) | `connection-state` → log `ERROR Fallo de conexión WebRTC` + `connection-error` a la sala |
+| Conexión P2P interrumpida | cliente (`disconnected`) | `connection-state` → log `Conexión WebRTC interrumpida` |
+| Error de cámara/micro | cliente (`getUserMedia` falla) | `media-error` → log `ERROR Error multimedia` |
+| Handshake de señalización rechazado | servidor (`engine.connection_error`) | log `Conexión Socket.IO rechazada` |
+| Reconexión recuperada | servidor (`socket.recovered`) | log `Reconexión` |
+| Desconexión | servidor (`disconnect`) | log `Usuario desconectado` + `peer-left`/`participant_left` |
+
+Los fallos de la conexión **P2P** no los puede ver el servidor directamente
+(el media no pasa por él), por eso el **cliente los reporta** vía
+`connection-state`; el servidor los centraliza en logs y los reenvía a la sala.
+
 ## 8. Estado en memoria
 
 ```js

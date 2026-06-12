@@ -22,6 +22,9 @@
  *       se reenvía a la sala; los nuevos joiners reciben el estado en
  *       `introduction` / `participant_joined`.
  *   - `stream-started`: el peer ya tiene su media local lista (evidencia/logs).
+ *   - `permissions-granted`: el navegador concedió cámara/micrófono.
+ *   - `connection-state`: el cliente reporta el estado de su RTCPeerConnection
+ *       (connected = conexión iniciada, failed = fallo, disconnected).
  *   - `media-error`: el peer no pudo acceder a cámara/micrófono.
  *   - `disconnect` → `peer-left` + `participant_left`: al salir se limpia el
  *       peer y se notifica a la sala.
@@ -294,6 +297,67 @@ export const initSignaling = (io: Server): void => {
           (roomId ? ` en la sala "${roomId}"` : "")
       );
     });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // permissions-granted (Tarea 3) — el navegador concedió cámara/micrófono.
+    // Payload: { audio?: boolean, video?: boolean }
+    // ──────────────────────────────────────────────────────────────────────
+    socket.on(
+      "permissions-granted",
+      (payload: { audio?: boolean; video?: boolean }) => {
+        const peer = socket.data.peer as PeerInfo | undefined;
+        const parts: string[] = [];
+        if (payload?.video) parts.push("cámara");
+        if (payload?.audio) parts.push("micrófono");
+        const granted = parts.length ? parts.join(" + ") : "ninguno";
+        logger.info(
+          `Permisos obtenidos: ${peer?.username ?? socket.id} → ${granted}`
+        );
+      }
+    );
+
+    // ──────────────────────────────────────────────────────────────────────
+    // connection-state (Tarea 1) — el cliente reporta el estado de su
+    // RTCPeerConnection con otro peer. Registra "conexión iniciada"
+    // (connected), FALLOS (failed) e interrupciones (disconnected).
+    // Payload: { peerUid?, peerSocketId?, state }
+    // ──────────────────────────────────────────────────────────────────────
+    socket.on(
+      "connection-state",
+      (payload: {
+        peerUid?: string;
+        peerSocketId?: string;
+        state?: string;
+      }) => {
+        const peer = socket.data.peer as PeerInfo | undefined;
+        const roomId = socket.data.roomId as string | undefined;
+        const who = peer?.username ?? socket.id;
+        const withWhom = payload?.peerUid || payload?.peerSocketId || "peer";
+        switch (payload?.state) {
+          case "connected":
+            logger.info(
+              `Conexión iniciada (P2P establecida): ${who} ↔ ${withWhom}`
+            );
+            break;
+          case "failed":
+            logger.error(`Fallo de conexión WebRTC: ${who} ↔ ${withWhom}`);
+            // Avisar a la sala para que la UI pueda reflejar el problema.
+            if (roomId) {
+              socket.to(roomId).emit("connection-error", {
+                uid: peer?.uid,
+                peerUid: payload?.peerUid,
+                state: "failed",
+              });
+            }
+            break;
+          case "disconnected":
+            logger.warn(`Conexión WebRTC interrumpida: ${who} ↔ ${withWhom}`);
+            break;
+          default:
+            break;
+        }
+      }
+    );
 
     // ──────────────────────────────────────────────────────────────────────
     // media-state — sincronización de micrófono / cámara (on/off) (Tarea 3).

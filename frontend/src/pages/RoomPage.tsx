@@ -239,6 +239,11 @@ export default function RoomPage() {
     toggleScreenShare,
     mediaError,
     supported: webrtcSupported,
+    mediaStatus,
+    signalingStatus,
+    peerConnecting,
+    peerState,
+    retryMedia,
   } = useWebRTC({
     roomId,
     identity: user
@@ -246,6 +251,10 @@ export default function RoomPage() {
       : null,
     enabled: !!roomId && !!user,
     onLocalMediaChange: publishMediaState,
+    // Notificaciones (toasts) de la videollamada.
+    onSignalingConnected: () => show("success", "Conexión establecida"),
+    onPeerJoined: (name) => show("success", `${name} se unió a la sala`),
+    onPeerLeft: (name) => show("info", `${name} salió de la sala`),
   });
 
   // ── Participantes en pantalla ──────────────────────────────────────────
@@ -383,6 +392,38 @@ export default function RoomPage() {
     chatStatus === "offline" ||
     chatStatus === "error";
 
+  // ── Estado de la videollamada (badge del header + overlays) ─────────────
+  // Pantallas de permisos / conexión basadas en el hook useWebRTC.
+  const reconnectingCall = signalingStatus === "reconnecting";
+  const connectingPeers =
+    signalingStatus === "connected" && peerConnecting;
+  const callStatus: { tone: "green" | "amber" | "red"; label: string; spin: boolean } =
+    !webrtcSupported
+      ? { tone: "red", label: "Sin soporte", spin: false }
+      : mediaStatus === "requesting"
+      ? { tone: "amber", label: "Esperando permisos", spin: false }
+      : mediaStatus === "denied"
+      ? { tone: "red", label: "Sin permisos", spin: false }
+      : reconnectingCall
+      ? { tone: "amber", label: "Reconectando…", spin: true }
+      : connectingPeers
+      ? { tone: "amber", label: "Conectando…", spin: true }
+      : signalingStatus === "connected"
+      ? {
+          tone: "green",
+          label:
+            participants.length > 1
+              ? `Conectado · ${participants.length} participantes`
+              : "Conectado",
+          spin: false,
+        }
+      : { tone: "amber", label: "Conectando…", spin: true };
+  // Sin cámara/micrófono no se pueden usar los controles de media.
+  const mediaBlocked =
+    mediaStatus === "requesting" ||
+    mediaStatus === "denied" ||
+    mediaStatus === "unsupported";
+
   // ── Render ──────────────────────────────────────────────────────────────
   // El anfitrión eliminó la sala: pantalla de cierre de sesión (Tarea 9).
   if (sessionEnded) {
@@ -469,7 +510,17 @@ export default function RoomPage() {
               <h1 className="truncate text-lg font-semibold text-white sm:text-xl">
                 {room?.name ?? "Cargando…"}
               </h1>
-              <ConnectionBadge status={chatStatus} label={chatStatusLabel} />
+              {/* Badge de la videollamada (permisos / conexión / reconexión). */}
+              <CallBadge
+                tone={callStatus.tone}
+                label={callStatus.label}
+                spin={callStatus.spin}
+              />
+              <ConnectionBadge
+                status={chatStatus}
+                label={chatStatusLabel}
+                className="hidden sm:inline-flex"
+              />
             </div>
             <p className="mt-0.5 text-xs text-slate-400">
               {room?.isActive !== false && (
@@ -519,19 +570,10 @@ export default function RoomPage() {
         </div>
       </header>
 
-      {/* Tarea 2 — el navegador no soporta WebRTC: aviso prominente. */}
-      {!webrtcSupported && (
-        <div
-          role="alert"
-          className="border-b border-red-500/40 bg-red-500/15 px-4 py-2 text-center text-sm font-semibold text-red-200 sm:px-6"
-        >
-          Tu navegador no soporta WebRTC. Usa un navegador moderno (Chrome, Edge,
-          Firefox) para las videollamadas.
-        </div>
-      )}
-
-      {/* Aviso si no se pudo acceder a cámara/micrófono (permisos / hardware). */}
-      {webrtcSupported && mediaError && (
+      {/* Caso "solo audio": la cámara fue denegada pero el micrófono sí.
+          Los casos "denegado"/"sin soporte" se muestran como pantalla en el
+          área de video (PermissionDeniedPanel), no como banner. */}
+      {mediaStatus === "audio-only" && mediaError && (
         <div
           role="alert"
           className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm font-medium text-amber-200 sm:px-6"
@@ -612,6 +654,16 @@ export default function RoomPage() {
           <h2 id="region-stage" className="sr-only">
             Área de video y compartición de pantalla
           </h2>
+          {mediaStatus === "requesting" ? (
+            <PermissionRequestPanel roomName={room?.name} />
+          ) : mediaStatus === "denied" || mediaStatus === "unsupported" ? (
+            <PermissionDeniedPanel
+              unsupported={mediaStatus === "unsupported"}
+              onRetry={retryMedia}
+              onLeave={handleLeave}
+            />
+          ) : (
+          <div className="relative flex min-h-0 flex-1 flex-col">
           <ul className="grid h-full flex-1 grid-cols-2 grid-rows-2 gap-3">
             {Array.from({ length: GRID_SLOTS }).map((_, idx) => {
               const p = participants[idx];
@@ -654,12 +706,23 @@ export default function RoomPage() {
                     // El tile propio va silenciado para evitar eco/acople.
                     muted={p.isYou}
                     mirror={p.isYou && !screenSharing}
+                    disconnected={
+                      !p.isYou &&
+                      (peerState[p.uid] === "disconnected" ||
+                        peerState[p.uid] === "failed")
+                    }
                   />
                 );
               }
               return <EmptyTile key={`empty-${idx}`} />;
             })}
           </ul>
+          {/* Overlay de conexión / reconexión sobre la cuadrícula. */}
+          {(reconnectingCall || connectingPeers) && (
+            <CallOverlay reconnecting={reconnectingCall} />
+          )}
+          </div>
+          )}
         </section>
 
         {/* Panel chat — se puede ocultar con el botón de la barra inferior.
@@ -698,18 +761,21 @@ export default function RoomPage() {
                 <button
                   key={c.label}
                   type="button"
-                  onClick={c.onClick}
-                  aria-label={c.label}
+                  onClick={mediaBlocked ? undefined : c.onClick}
+                  disabled={mediaBlocked}
+                  aria-label={mediaBlocked ? "Sin acceso" : c.label}
                   aria-pressed={c.active}
                   className={cn(
                     "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
-                    offToggleStyle
+                    mediaBlocked
+                      ? "cursor-not-allowed border-slate-800 bg-slate-900 text-slate-500 opacity-60"
+                      : offToggleStyle
                   )}
                 >
                   {c.icon}
                   <span className="hidden sm:inline">
-                    {c.label.split(" ")[1] ?? c.label}
+                    {mediaBlocked ? "Sin acceso" : c.label.split(" ")[1] ?? c.label}
                   </span>
                 </button>
               );
@@ -843,6 +909,8 @@ interface VideoTileProps {
   muted?: boolean;
   /** Espejar horizontalmente (cámara propia, no al compartir pantalla). */
   mirror?: boolean;
+  /** El peer perdió la conexión P2P → tile en gris + badge "Desconectado". */
+  disconnected?: boolean;
 }
 
 function VideoTile({
@@ -854,6 +922,7 @@ function VideoTile({
   stream,
   muted,
   mirror,
+  disconnected,
 }: VideoTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -871,16 +940,25 @@ function VideoTile({
 
   return (
     <li
-      aria-label={`Video de ${name}${cameraOff ? " (cámara apagada)" : ""}`}
+      aria-label={`Video de ${name}${cameraOff ? " (cámara apagada)" : ""}${
+        disconnected ? " (desconectado)" : ""
+      }`}
       className={cn(
-        "relative flex aspect-video items-center justify-center overflow-hidden rounded-xl",
+        "relative flex aspect-video items-center justify-center overflow-hidden rounded-xl transition",
         showVideo
           ? "bg-slate-950 ring-1 ring-slate-600"
           : cameraOff
           ? "bg-slate-800 ring-1 ring-slate-700"
-          : "bg-gradient-to-br from-slate-700 to-slate-900 ring-1 ring-slate-600"
+          : "bg-gradient-to-br from-slate-700 to-slate-900 ring-1 ring-slate-600",
+        disconnected && "opacity-60 grayscale"
       )}
     >
+      {/* Badge "Desconectado" (top-right) cuando se pierde el P2P. */}
+      {disconnected && (
+        <span className="absolute right-2 top-2 z-10 inline-flex items-center rounded-md bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+          Desconectado
+        </span>
+      )}
       {/* El elemento de video siempre está montado (para conservar la
           conexión de la pista); se oculta cuando no hay que mostrarlo.
           Sin <track>: es video en vivo (cámara/pantalla), no hay subtítulos. */}
@@ -957,5 +1035,172 @@ function EmptyTile() {
     >
       Espacio disponible
     </li>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Badge de estado de la videollamada (header)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BADGE_TONES: Record<"green" | "amber" | "red", { dot: string; text: string; ring: string }> = {
+  green: { dot: "bg-emerald-500", text: "text-emerald-400", ring: "" },
+  amber: { dot: "bg-amber-400", text: "text-amber-400", ring: "ring-2 ring-amber-300/40 animate-pulse" },
+  red: { dot: "bg-red-500", text: "text-red-400", ring: "" },
+};
+
+function CallBadge({
+  tone,
+  label,
+  spin,
+}: {
+  tone: "green" | "amber" | "red";
+  label: string;
+  spin: boolean;
+}) {
+  const t = BADGE_TONES[tone];
+  return (
+    <span
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full bg-slate-900/70 px-3 py-1 text-sm font-semibold",
+        t.text
+      )}
+    >
+      {spin ? (
+        <span
+          aria-hidden="true"
+          className="inline-block h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"
+        />
+      ) : (
+        <span aria-hidden="true" className={cn("inline-block h-2.5 w-2.5 rounded-full", t.dot, t.ring)} />
+      )}
+      {label}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Overlay sobre la cuadrícula: conectando participantes / reconectando
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CallOverlay({ reconnecting }: { reconnecting: boolean }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-xl bg-slate-950/70 backdrop-blur-sm"
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "inline-block h-10 w-10 rounded-full border-4 border-r-transparent animate-spin",
+          reconnecting ? "border-amber-400" : "border-blue-400"
+        )}
+      />
+      <p className="text-base font-semibold text-white">
+        {reconnecting ? "Reconectando…" : "Conectando participantes…"}
+      </p>
+      <p className="text-sm text-slate-300">
+        {reconnecting
+          ? "Recuperando la conexión automáticamente"
+          : "Esto puede tomar unos segundos"}
+      </p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pantalla: solicitar permisos de cámara/micrófono
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PermissionRequestPanel({ roomName }: { roomName?: string }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+      <div aria-hidden="true" className="text-4xl">🎥 🎤</div>
+      <h3 className="text-lg font-bold text-white sm:text-xl">
+        Necesitamos acceso a tu cámara y micrófono
+      </h3>
+      <p className="max-w-sm text-sm text-slate-400">
+        {roomName ? `${roomName} necesita` : "La sala necesita"} estos permisos
+        para que puedas participar. Haz clic en{" "}
+        <span className="font-semibold text-slate-200">“Permitir”</span> cuando
+        el navegador lo solicite.
+      </p>
+      <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-300">
+        <span className="inline-block h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin" />
+        Esperando permisos…
+      </span>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pantalla: permisos denegados (o navegador sin soporte)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PermissionDeniedPanel({
+  unsupported,
+  onRetry,
+  onLeave,
+}: {
+  unsupported: boolean;
+  onRetry: () => void;
+  onLeave: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center"
+    >
+      <span
+        aria-hidden="true"
+        className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/15 text-3xl"
+      >
+        🚫
+      </span>
+      <h3 className="text-lg font-bold text-red-400 sm:text-xl">
+        {unsupported ? "Navegador no compatible" : "Permisos denegados"}
+      </h3>
+      <p className="max-w-sm text-sm text-slate-400">
+        {unsupported
+          ? "Tu navegador no soporta WebRTC. Usa un navegador moderno (Chrome, Edge o Firefox) para participar."
+          : "Para participar en la sala necesitas habilitar el acceso a la cámara y micrófono desde la configuración de tu navegador."}
+      </p>
+      {!unsupported && (
+        <div className="max-w-sm rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-left text-xs text-slate-300">
+          <p className="mb-1">
+            <span className="font-semibold text-slate-100">Chrome:</span> 🔒 en
+            la barra de URL → Permisos del sitio
+          </p>
+          <p className="mb-1">
+            <span className="font-semibold text-slate-100">Firefox:</span> ⓘ en
+            la barra de URL → Más información
+          </p>
+          <p>
+            <span className="font-semibold text-slate-100">Safari:</span>{" "}
+            Preferencias → Sitios web → Cámara
+          </p>
+        </div>
+      )}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        {!unsupported && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex items-center justify-center rounded-md bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+          >
+            Reintentar tras habilitar
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onLeave}
+          className="inline-flex items-center justify-center rounded-md border border-slate-700 px-5 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          Salir de la sala
+        </button>
+      </div>
+    </div>
   );
 }

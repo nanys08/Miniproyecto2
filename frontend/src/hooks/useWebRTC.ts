@@ -26,7 +26,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import { createWebrtcSocket } from "@/services/webrtcSocket";
-import { buildPeerConfig } from "@/services/webrtc";
+import {
+  createPeerConnection,
+  isWebRTCSupported,
+  rtcLog,
+} from "@/services/webrtcService";
 
 interface PeerInfo {
   socketId: string;
@@ -51,8 +55,10 @@ interface PeerLeftEvent {
   roomId: string;
 }
 
-/** Estado interno de cada conexión con un peer remoto. */
+/** Estado interno de cada conexión con un peer remoto (Tarea 7). */
 interface PeerCtx {
+  /** socketId del peer (clave del mapa `peers`). */
+  socketId: string;
   pc: RTCPeerConnection;
   /** Rol para resolver colisiones de oferta (perfect negotiation). */
   polite: boolean;
@@ -60,6 +66,8 @@ interface PeerCtx {
   ignoreOffer: boolean;
   /** uid del peer (clave con la que se expone su stream a la UI). */
   uid?: string;
+  /** Estado de la conexión P2P (new → connecting → connected → …). */
+  connectionState: RTCPeerConnectionState;
 }
 
 export interface WebRTCIdentity {
@@ -95,6 +103,8 @@ export interface UseWebRTCResult {
   toggleScreenShare: () => Promise<void>;
   /** Mensaje legible si no se pudo obtener cámara/micrófono. */
   mediaError: string | null;
+  /** `false` si el navegador no soporta WebRTC (Tarea 2). */
+  supported: boolean;
 }
 
 /** Discrimina un payload de señal SDP (offer/answer) de un candidato ICE. */
@@ -124,6 +134,8 @@ export function useWebRTC({
   // Pasa a true cuando el intento de getUserMedia termina (con éxito o no),
   // momento en el que el socket de señalización puede arrancar.
   const [mediaReady, setMediaReady] = useState(false);
+  // Tarea 2 — soporte del navegador (se evalúa una vez).
+  const supported = isWebRTCSupported();
 
   const socketRef = useRef<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -196,16 +208,19 @@ export function useWebRTC({
       const localSocketId = socket?.id;
       if (!socket || !localSocketId) return null;
 
-      const pc = new RTCPeerConnection(buildPeerConfig());
+      const pc = createPeerConnection();
       // El peer con el id "menor" es el polite (cede ante colisiones).
       const ctx: PeerCtx = {
+        socketId: remoteSocketId,
         pc,
         polite: localSocketId < remoteSocketId,
         makingOffer: false,
         ignoreOffer: false,
         uid,
+        connectionState: pc.connectionState,
       };
       peersRef.current.set(remoteSocketId, ctx);
+      rtcLog(`RTCPeerConnection creada con ${uid ?? remoteSocketId}`);
 
       // Adjuntar las pistas locales actuales (cámara+micro). Si ya estamos
       // compartiendo pantalla, sustituimos la pista de video por la pantalla.
@@ -228,6 +243,7 @@ export function useWebRTC({
             to: remoteSocketId,
             signal: pc.localDescription,
           });
+          rtcLog(`Offer enviada → ${ctx.uid ?? remoteSocketId}`);
         } catch {
           /* la renegociación reintentará */
         } finally {
@@ -241,6 +257,7 @@ export function useWebRTC({
             to: remoteSocketId,
             signal: candidate.toJSON(),
           });
+          rtcLog(`ICE enviado → ${ctx.uid ?? remoteSocketId}`);
         }
       };
 
@@ -249,11 +266,13 @@ export function useWebRTC({
         if (!stream) return;
         const key = ctx.uid;
         if (!key) return; // sin uid no podemos asociarlo a un tile
+        rtcLog(`Stream remoto recibido de ${key}`);
         setRemoteStreams((prev) => ({ ...prev, [key]: stream }));
       };
 
       pc.onconnectionstatechange = () => {
         const st = pc.connectionState;
+        ctx.connectionState = st; // Tarea 7 — guardamos el estado del peer.
         // Reportar al signaling server: conexión establecida / fallo /
         // interrupción (Tarea 1: registro de fallos de conexión WebRTC).
         const s = socketRef.current;
@@ -267,6 +286,10 @@ export function useWebRTC({
             state: st,
           });
         }
+        const who = ctx.uid ?? remoteSocketId;
+        if (st === "connected") rtcLog(`P2P establecida con ${who}`);
+        else if (st === "failed") rtcLog(`Fallo de conexión P2P con ${who}`);
+        else if (st === "disconnected") rtcLog(`Conexión P2P interrumpida con ${who}`);
         if (st === "failed" || st === "closed") {
           closePeer(remoteSocketId);
         }
@@ -280,6 +303,12 @@ export function useWebRTC({
   // ── Efecto 1: obtener cámara/micrófono ─────────────────────────────────
   useEffect(() => {
     if (!enabled || !roomId) return;
+    // Tarea 2 — sin soporte de WebRTC no seguimos; mostramos el aviso.
+    if (!supported) {
+      rtcLog("Tu navegador no soporta WebRTC");
+      setMediaError("Tu navegador no soporta WebRTC");
+      return;
+    }
     let cancelled = false;
 
     (async () => {
@@ -347,7 +376,7 @@ export function useWebRTC({
       setScreenSharing(false);
       setMediaReady(false);
     };
-  }, [enabled, roomId]);
+  }, [enabled, roomId, supported]);
 
   // ── Efecto 2: socket de señalización + ciclo de vida de la malla ───────
   // Arranca cuando el intento de media terminó (`mediaReady`): si hubo stream,
@@ -372,6 +401,7 @@ export function useWebRTC({
         micOn: m,
         camOn: c,
       });
+      rtcLog("Introduction enviada", { roomId });
       // Permisos concedidos (Tarea 3), evidencia de stream listo, o error.
       if (permissionsRef.current) {
         socket.emit("permissions-granted", permissionsRef.current);
@@ -382,11 +412,22 @@ export function useWebRTC({
       }
     };
 
+    // "Juan conectado" — nuestra conexión al signaling server (Tarea 1/demo).
+    const onConnect = () => {
+      rtcLog(`${id.username ?? "Tú"} conectado`, socket.id);
+      introduce();
+    };
+
     // `introduction` (server → cliente): lista de peers. Para cada peer, el
     // de socketId mayor inicia la conexión; el otro espera la oferta.
     const onIntroduction = ({ self, peers }: IntroductionEvent) => {
       peers.forEach((p) => {
         if (!p.socketId || p.socketId === self) return;
+        // Log de "Ana conectada" la primera vez que vemos a este peer.
+        const known =
+          uidBySocketRef.current.has(p.socketId) ||
+          peersRef.current.has(p.socketId);
+        if (!known) rtcLog(`${p.username ?? p.socketId} conectada`);
         // Sembrar el uid para todos (también para el lado que espera la
         // oferta, así puede asociar el stream cuando llegue por `signal`).
         if (p.uid) uidBySocketRef.current.set(p.socketId, p.uid);
@@ -423,20 +464,28 @@ export function useWebRTC({
             (ctx.makingOffer || pc.signalingState !== "stable");
           ctx.ignoreOffer = !ctx.polite && collision;
           if (ctx.ignoreOffer) return;
+          const peerName = ctx.uid ?? from;
+          if (signal.type === "offer") rtcLog(`Offer recibida ← ${peerName}`);
+          else if (signal.type === "answer") rtcLog(`Answer recibida ← ${peerName}`);
           await pc.setRemoteDescription(signal);
           if (signal.type === "offer") {
             await pc.setLocalDescription();
             socket.emit("signal", { to: from, signal: pc.localDescription });
+            rtcLog(`Answer enviada → ${peerName}`);
           }
         } else {
           await pc.addIceCandidate(signal);
+          rtcLog(`ICE recibido ← ${ctx.uid ?? from}`);
         }
       } catch (err) {
         if (!ctx.ignoreOffer) console.warn("onSignal error", err);
       }
     };
 
-    const onPeerLeft = ({ socketId }: PeerLeftEvent) => closePeer(socketId);
+    const onPeerLeft = ({ socketId, uid }: PeerLeftEvent) => {
+      rtcLog(`Peer desconectado: ${uid ?? socketId}`);
+      closePeer(socketId);
+    };
 
     // `media-state` (server → cliente): mic/cam de un peer cambió (agregado).
     const onRemoteMediaState = ({
@@ -471,7 +520,7 @@ export function useWebRTC({
     const onMicOn = (p: { uid?: string }) => patchRemoteMedia(p?.uid, "micOn", true);
     const onMicOff = (p: { uid?: string }) => patchRemoteMedia(p?.uid, "micOn", false);
 
-    socket.on("connect", introduce);
+    socket.on("connect", onConnect);
     socket.on("introduction", onIntroduction);
     socket.on("signal", onSignal);
     socket.on("peer-left", onPeerLeft);
@@ -480,10 +529,10 @@ export function useWebRTC({
     socket.on("camera_off", onCameraOff);
     socket.on("mic_on", onMicOn);
     socket.on("mic_off", onMicOff);
-    if (socket.connected) introduce();
+    if (socket.connected) onConnect();
 
     return () => {
-      socket.off("connect", introduce);
+      socket.off("connect", onConnect);
       socket.off("introduction", onIntroduction);
       socket.off("signal", onSignal);
       socket.off("peer-left", onPeerLeft);
@@ -612,5 +661,6 @@ export function useWebRTC({
     toggleCam,
     toggleScreenShare,
     mediaError,
+    supported,
   };
 }

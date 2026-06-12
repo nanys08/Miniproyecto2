@@ -238,6 +238,7 @@ export default function RoomPage() {
     toggleCam,
     toggleScreenShare,
     mediaError,
+    supported: webrtcSupported,
   } = useWebRTC({
     roomId,
     identity: user
@@ -518,8 +519,19 @@ export default function RoomPage() {
         </div>
       </header>
 
+      {/* Tarea 2 — el navegador no soporta WebRTC: aviso prominente. */}
+      {!webrtcSupported && (
+        <div
+          role="alert"
+          className="border-b border-red-500/40 bg-red-500/15 px-4 py-2 text-center text-sm font-semibold text-red-200 sm:px-6"
+        >
+          Tu navegador no soporta WebRTC. Usa un navegador moderno (Chrome, Edge,
+          Firefox) para las videollamadas.
+        </div>
+      )}
+
       {/* Aviso si no se pudo acceder a cámara/micrófono (permisos / hardware). */}
-      {mediaError && (
+      {webrtcSupported && mediaError && (
         <div
           role="alert"
           className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm font-medium text-amber-200 sm:px-6"

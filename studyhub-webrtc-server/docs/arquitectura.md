@@ -71,22 +71,41 @@ La config de servidores ICE vive en el **frontend** (`VITE_TURN_*`):
 - **TURN** (ExpressTURN) — relay de media cuando la conexión directa es
   imposible (NAT simétrica, firewalls). Garantiza que la llamada funcione.
 
-## 5. Estados de medios (mic / cam)
+## 5. Sincronización de participantes
 
-El evento `media-state` mantiene sincronizado el estado de micrófono y cámara
-entre todos los peers:
+Además de la malla, el servidor mantiene sincronizada la **lista de
+participantes** para la UI del front:
+
+- **`participant_joined`** `{ id, uid, username, avatar, micOn, camOn }` — al
+  entrar alguien. Lleva ID, nombre y **estado inicial AV**.
+- **`participant_left`** `{ id, uid, username, roomId }` — al salir alguien
+  (en paralelo a `peer-left`, que cierra la conexión P2P de la malla).
+
+La estructura `rooms` (una `Map` por sala) es la fuente de verdad de quién está
+activo en cada momento.
+
+## 6. Estados de medios (mic / cam)
+
+El estado de micrófono/cámara se sincroniza de **dos formas complementarias**:
+
+1. **`media-state`** `{ socketId, uid, micOn, camOn }` — estado agregado, usado
+   por la malla y para sembrar a los nuevos joiners.
+2. **Eventos discretos** `camera_on` / `camera_off` / `mic_on` / `mic_off`
+   `{ id, uid }` — uno por cambio, pensados para que el front actualice la UI de
+   forma puntual. El front puede **emitirlos** o **escucharlos**.
 
 ```
 B apaga su cámara
-     │── media-state({ camOn:false }) ─▶ SERVER
-                                          │  guarda peer.camOn=false
-                                          │── media-state(socketId,camOn:false) ─▶ resto de la sala
+     │── camera_off  (o media-state{camOn:false}) ─▶ SERVER
+                                                     │  guarda peer.camOn=false
+                                                     │── media-state(...) ───────▶ resto de la sala
+                                                     │── camera_off({id,uid}) ───▶ resto de la sala
 ```
 
 Los participantes que entran **después** reciben el estado actual dentro de
-`introduction` (cada `PeerInfo` incluye `micOn`/`camOn`).
+`introduction` / `participant_joined` (cada `PeerInfo` incluye `micOn`/`camOn`).
 
-## 6. Reconexión y estabilidad
+## 7. Reconexión y estabilidad
 
 Aunque el media no pasa por el servidor, la **sesión de señalización debe
 mantenerse estable** mientras hay streams activos:
@@ -101,7 +120,7 @@ mantenerse estable** mientras hay streams activos:
 - **Limpieza determinista:** al `disconnect` se emite `peer-left` y el peer se
   borra de la sala; si la sala queda vacía, se libera de memoria.
 
-## 7. Estado en memoria
+## 8. Estado en memoria
 
 ```js
 rooms = {
@@ -116,7 +135,7 @@ Es **efímero**: si el servicio reinicia (deploy, escalado), los clientes se
 reconectan y vuelven a emitir `introduction`. No hay base de datos: la
 autorización de la sala la hace el room-service (Repo 1).
 
-## 8. Seguridad / límites
+## 9. Seguridad / límites
 
 - El servidor es un **relay puro**: no inspecciona ni almacena el contenido
   multimedia.

@@ -57,11 +57,15 @@ rooms = {
 |---|---|---|---|
 | \`introduction\` | client → server | \`{ roomId, uid?, username?, avatar? }\` | **Tarea 4.** El peer entra a la sala y se presenta. |
 | \`introduction\` | server → client | \`{ roomId, self, peers: PeerInfo[] }\` | Al recién llegado: **quién está conectado**. A los demás: **quién entra** (\`peers\` con el nuevo). |
+| \`participant_joined\` | server → sala | \`{ id, uid?, username, avatar?, micOn, camOn }\` | Un participante entró: **ID, nombre y estado inicial AV** (para la lista de la UI). |
+| \`participant_left\` | server → sala | \`{ id, uid?, username?, roomId }\` | Un participante salió: actualizar la lista de participantes activos. |
 | \`signal\` | client → server | \`{ to, signal }\` | Transporta offer/answer/ICE. El server lo reenvía **sin modificar** a \`to\`. |
 | \`signal\` | server → client | \`{ from, signal }\` | El mismo payload, anexando quién lo envió. |
 | \`stream-started\` | client → server | \`{ }\` | El peer ya tiene su media local lista. Solo para logs/evidencia. |
-| \`media-state\` | client → server | \`{ micOn?, camOn? }\` | Estado de micrófono/cámara. Se guarda en el peer y se reenvía a la sala. |
-| \`media-state\` | server → sala | \`{ socketId, uid?, micOn, camOn }\` | Cambio de mic/cam de un peer. Los nuevos joiners reciben el estado en \`introduction\`. |
+| \`media-state\` | client → server | \`{ micOn?, camOn? }\` | Estado de micrófono/cámara (agregado). Se guarda en el peer y se reenvía a la sala. |
+| \`media-state\` | server → sala | \`{ socketId, uid?, micOn, camOn }\` | Cambio de mic/cam de un peer. Los nuevos joiners reciben el estado en \`introduction\`/\`participant_joined\`. |
+| \`camera_on\` / \`camera_off\` | client → server **y** server → sala | \`{ id, uid? }\` | Evento AV **discreto** de cámara. El front puede emitirlo o escucharlo para actualizar la UI. |
+| \`mic_on\` / \`mic_off\` | client → server **y** server → sala | \`{ id, uid? }\` | Evento AV **discreto** de micrófono. El front puede emitirlo o escucharlo para actualizar la UI. |
 | \`media-error\` | client → server | \`{ reason? }\` | El peer no pudo acceder a cámara/micrófono. |
 | \`media-error\` | server → sala | \`{ socketId, uid?, reason }\` | Aviso a la sala del problema de medios. |
 | \`peer-left\` | server → sala | \`{ socketId, uid?, roomId }\` | Un peer se desconectó; los demás cierran su conexión con él. |
@@ -96,7 +100,8 @@ Cada acción se registra con timestamp ISO:
 [ts] INFO:  Signal [OFFER]  reenviada: <socketIdA> → <socketIdB>
 [ts] INFO:  Signal [ANSWER] reenviada: <socketIdB> → <socketIdA>
 [ts] INFO:  Signal [ICE]    reenviada: <socketIdA> → <socketIdB>
-[ts] INFO:  Estado multimedia: <username> (<socketId>) → mic ON, cam OFF
+[ts] INFO:  Estado micrófono: <username> (<socketId>) → ON | OFF
+[ts] INFO:  Estado cámara: <username> (<socketId>) → ON | OFF
 [ts] ERROR: Error multimedia: <username> — <reason>
 [ts] INFO:  Usuario desconectado: <username> (<socketId>) — motivo: <reason>
 \`\`\`

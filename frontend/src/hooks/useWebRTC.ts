@@ -416,7 +416,7 @@ export function useWebRTC({
 
     const onPeerLeft = ({ socketId }: PeerLeftEvent) => closePeer(socketId);
 
-    // `media-state` (server → cliente): mic/cam de un peer cambió.
+    // `media-state` (server → cliente): mic/cam de un peer cambió (agregado).
     const onRemoteMediaState = ({
       uid,
       micOn: m,
@@ -431,11 +431,33 @@ export function useWebRTC({
       setRemoteMedia((prev) => ({ ...prev, [uid]: { micOn: m, camOn: c } }));
     };
 
+    // Eventos AV DISCRETOS (camera_on/off, mic_on/off): actualizan un solo
+    // campo del estado remoto. Payload: { id, uid }.
+    const patchRemoteMedia = (
+      uid: string | undefined,
+      field: "micOn" | "camOn",
+      value: boolean
+    ) => {
+      if (!uid) return;
+      setRemoteMedia((prev) => {
+        const cur = prev[uid] ?? { micOn: true, camOn: true };
+        return { ...prev, [uid]: { ...cur, [field]: value } };
+      });
+    };
+    const onCameraOn = (p: { uid?: string }) => patchRemoteMedia(p?.uid, "camOn", true);
+    const onCameraOff = (p: { uid?: string }) => patchRemoteMedia(p?.uid, "camOn", false);
+    const onMicOn = (p: { uid?: string }) => patchRemoteMedia(p?.uid, "micOn", true);
+    const onMicOff = (p: { uid?: string }) => patchRemoteMedia(p?.uid, "micOn", false);
+
     socket.on("connect", introduce);
     socket.on("introduction", onIntroduction);
     socket.on("signal", onSignal);
     socket.on("peer-left", onPeerLeft);
     socket.on("media-state", onRemoteMediaState);
+    socket.on("camera_on", onCameraOn);
+    socket.on("camera_off", onCameraOff);
+    socket.on("mic_on", onMicOn);
+    socket.on("mic_off", onMicOff);
     if (socket.connected) introduce();
 
     return () => {
@@ -444,6 +466,10 @@ export function useWebRTC({
       socket.off("signal", onSignal);
       socket.off("peer-left", onPeerLeft);
       socket.off("media-state", onRemoteMediaState);
+      socket.off("camera_on", onCameraOn);
+      socket.off("camera_off", onCameraOff);
+      socket.off("mic_on", onMicOn);
+      socket.off("mic_off", onMicOff);
       // Cerrar todas las conexiones y desconectar el socket dedicado.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       const peerMap = peersRef.current;

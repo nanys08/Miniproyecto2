@@ -70,16 +70,26 @@ socket.emit("signal", { to: targetSocketId, signal });   // signal = SDP | ICECa
 socket.on("signal", ({ from, signal }) => { /* ... */ });
 ```
 
-### `media-state` (estados de micrófono / cámara)
+### `participant_joined` / `participant_left` (lista de participantes)
+```js
+// server → sala
+socket.on("participant_joined", ({ id, uid, username, avatar, micOn, camOn }) => { /* añadir a la lista */ });
+socket.on("participant_left",   ({ id, uid, username, roomId }) => { /* quitar de la lista */ });
+```
+
+### `media-state` y eventos AV discretos (estados de micrófono / cámara)
 Sincroniza mic/cam entre peers. Se guarda en el peer y se reenvía a la sala;
-los que entran después lo reciben en `introduction`.
+los que entran después lo reciben en `introduction` / `participant_joined`.
 
 ```js
-// client → server
+// agregado
 socket.emit("media-state", { micOn: true, camOn: false });
-
-// server → resto de la sala
 socket.on("media-state", ({ socketId, uid, micOn, camOn }) => { /* ... */ });
+
+// discretos (el front puede emitirlos o escucharlos)
+socket.emit("camera_off");                 // o camera_on / mic_on / mic_off
+socket.on("camera_off", ({ id, uid }) => { /* actualizar UI */ });
+socket.on("mic_on",     ({ id, uid }) => { /* actualizar UI */ });
 ```
 
 ### `stream-started` / `media-error`

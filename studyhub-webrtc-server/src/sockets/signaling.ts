@@ -15,11 +15,16 @@
  *       responde QUIÉN ESTÁ CONECTADO (al recién llegado) y avisa QUIÉN ENTRA
  *       (a los que ya estaban). El de socketId mayor inicia la oferta (anti-glare).
  *   - `signal`: transporta offer/answer/ICE SIN MODIFICAR. Solo se reenvía a `to`.
- *   - `media-state`: estado de micrófono/cámara (on/off). Se guarda y se reenvía
- *       a la sala; los nuevos joiners lo reciben en `introduction`.
+ *   - `participant_joined` / `participant_left`: sincronización de la lista de
+ *       participantes (ID, nombre, estado inicial AV) para la UI del front.
+ *   - `media-state` (agregado) y los eventos AV DISCRETOS `camera_on`/
+ *       `camera_off`/`mic_on`/`mic_off`: estado de micrófono/cámara. Se guarda y
+ *       se reenvía a la sala; los nuevos joiners reciben el estado en
+ *       `introduction` / `participant_joined`.
  *   - `stream-started`: el peer ya tiene su media local lista (evidencia/logs).
  *   - `media-error`: el peer no pudo acceder a cámara/micrófono.
- *   - `disconnect` → `peer-left`: al salir se limpia el peer y se notifica.
+ *   - `disconnect` → `peer-left` + `participant_left`: al salir se limpia el
+ *       peer y se notifica a la sala.
  *
  * Reconexión: `connectionStateRecovery` (ver server.ts) recupera la sesión tras
  * cortes breves; aquí detectamos `socket.recovered` para re-registrar el peer y
@@ -79,6 +84,55 @@ const signalKind = (signal: unknown): string => {
   return "SIGNAL";
 };
 
+/**
+ * Aplica un cambio de estado AV al peer y lo difunde a la sala de DOS formas:
+ *   1. `media-state` agregado — lo consume la malla WebRTC.
+ *   2. Eventos DISCRETOS `camera_on`/`camera_off`/`mic_on`/`mic_off` (Tarea 4)
+ *      para que el front actualice la UI. Solo se emite el evento del campo que
+ *      realmente cambió, y se registra el log correspondiente (Tarea 5).
+ */
+const applyMediaChange = (
+  socket: Socket,
+  change: { micOn?: boolean; camOn?: boolean }
+): void => {
+  const roomId = socket.data.roomId as string | undefined;
+  const peer = socket.data.peer as PeerInfo | undefined;
+  if (!roomId || !peer || !rooms[roomId]) return;
+
+  const before = { micOn: peer.micOn, camOn: peer.camOn };
+  if (typeof change.micOn === "boolean") peer.micOn = change.micOn;
+  if (typeof change.camOn === "boolean") peer.camOn = change.camOn;
+  rooms[roomId].set(socket.id, peer);
+
+  // Estado agregado (compat con la señalización WebRTC / nuevos joiners).
+  socket.to(roomId).emit("media-state", {
+    socketId: socket.id,
+    uid: peer.uid,
+    micOn: peer.micOn,
+    camOn: peer.camOn,
+  });
+
+  // Eventos discretos + logs, solo para el campo que cambió.
+  if (before.micOn !== peer.micOn) {
+    socket.to(roomId).emit(peer.micOn ? "mic_on" : "mic_off", {
+      id: socket.id,
+      uid: peer.uid,
+    });
+    logger.info(
+      `Estado micrófono: ${peer.username} (${socket.id}) → ${peer.micOn ? "ON" : "OFF"}`
+    );
+  }
+  if (before.camOn !== peer.camOn) {
+    socket.to(roomId).emit(peer.camOn ? "camera_on" : "camera_off", {
+      id: socket.id,
+      uid: peer.uid,
+    });
+    logger.info(
+      `Estado cámara: ${peer.username} (${socket.id}) → ${peer.camOn ? "ON" : "OFF"}`
+    );
+  }
+};
+
 // ─── Inicialización ──────────────────────────────────────────────────────────
 
 export const initSignaling = (io: Server): void => {
@@ -99,6 +153,14 @@ export const initSignaling = (io: Server): void => {
           roomId,
           self: socket.id,
           peers: [peer],
+        });
+        socket.to(roomId).emit("participant_joined", {
+          id: socket.id,
+          uid: peer.uid,
+          username: peer.username,
+          avatar: peer.avatar,
+          micOn: peer.micOn,
+          camOn: peer.camOn,
         });
       }
       logger.info(
@@ -156,6 +218,12 @@ export const initSignaling = (io: Server): void => {
             uid: peer.uid,
             roomId: prevRoom,
           });
+          socket.to(prevRoom).emit("participant_left", {
+            id: socket.id,
+            uid: peer.uid,
+            username: peer.username,
+            roomId: prevRoom,
+          });
         }
 
         socket.data.roomId = roomId;
@@ -176,6 +244,16 @@ export const initSignaling = (io: Server): void => {
           roomId,
           self: socket.id,
           peers: [peer],
+        });
+
+        // (c) participant_joined (Tarea 2) — ID, Nombre y estado inicial AV.
+        socket.to(roomId).emit("participant_joined", {
+          id: socket.id,
+          uid: peer.uid,
+          username: peer.username,
+          avatar: peer.avatar,
+          micOn: peer.micOn,
+          camOn: peer.camOn,
         });
 
         logger.info(
@@ -225,27 +303,19 @@ export const initSignaling = (io: Server): void => {
     socket.on(
       "media-state",
       (payload: { micOn?: boolean; camOn?: boolean }) => {
-        const roomId = socket.data.roomId as string | undefined;
-        const peer = socket.data.peer as PeerInfo | undefined;
-        if (!roomId || !peer || !rooms[roomId]) return;
-
-        if (typeof payload?.micOn === "boolean") peer.micOn = payload.micOn;
-        if (typeof payload?.camOn === "boolean") peer.camOn = payload.camOn;
-        rooms[roomId].set(socket.id, peer);
-
-        socket.to(roomId).emit("media-state", {
-          socketId: socket.id,
-          uid: peer.uid,
-          micOn: peer.micOn,
-          camOn: peer.camOn,
-        });
-
-        logger.info(
-          `Estado multimedia: ${peer.username} (${socket.id}) → ` +
-            `mic ${peer.micOn ? "ON" : "OFF"}, cam ${peer.camOn ? "ON" : "OFF"}`
-        );
+        applyMediaChange(socket, payload || {});
       }
     );
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Eventos AV DISCRETOS (Tarea 4) — alternativa a `media-state`. El front
+    // puede emitir directamente camera_on/off / mic_on/off; el server
+    // actualiza el peer y los reenvía a la sala (+ logs en applyMediaChange).
+    // ──────────────────────────────────────────────────────────────────────
+    socket.on("camera_on", () => applyMediaChange(socket, { camOn: true }));
+    socket.on("camera_off", () => applyMediaChange(socket, { camOn: false }));
+    socket.on("mic_on", () => applyMediaChange(socket, { micOn: true }));
+    socket.on("mic_off", () => applyMediaChange(socket, { micOn: false }));
 
     // ──────────────────────────────────────────────────────────────────────
     // media-error — el peer no pudo acceder a cámara/micrófono (Tarea 4).
@@ -283,10 +353,17 @@ export const initSignaling = (io: Server): void => {
       if (roomId && rooms[roomId]) {
         rooms[roomId].delete(socket.id);
         // Notificar a la sala que este peer se fue → los demás cierran su
-        // RTCPeerConnection con él.
+        // RTCPeerConnection con él (peer-left) y actualizan la lista de
+        // participantes activos (participant_left, Tarea 3).
         socket.to(roomId).emit("peer-left", {
           socketId: socket.id,
           uid: peer?.uid,
+          roomId,
+        });
+        socket.to(roomId).emit("participant_left", {
+          id: socket.id,
+          uid: peer?.uid,
+          username: peer?.username,
           roomId,
         });
         // Si la sala quedó vacía, liberamos la entrada del mapa.

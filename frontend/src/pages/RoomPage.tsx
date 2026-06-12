@@ -27,6 +27,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import { useWebRTC } from "@/hooks/useWebRTC";
 import { useToast } from "@/hooks/useToast";
 import { useRoomChat } from "@/hooks/useRoomChat";
 import { getRoom, type Room } from "@/services/rooms";
@@ -219,28 +220,31 @@ export default function RoomPage() {
     });
   }, [presentMembers, user, profileCache]);
 
-  // ── Controles locales de micrófono / cámara / pantalla ─────────────────
-  // El estado VIVE en este componente; cada cambio se publica por socket
-  // (`publishMediaState`) para que el resto de la sala vea los iconos
-  // actualizados. WebRTC real viene en TS-03 — por ahora son solo flags.
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
-  const [screenOn, setScreenOn] = useState(false);
-
-  const toggleMic = () => {
-    setMicOn((prev) => {
-      const next = !prev;
-      publishMediaState({ micOn: next });
-      return next;
-    });
-  };
-  const toggleCam = () => {
-    setCamOn((prev) => {
-      const next = !prev;
-      publishMediaState({ camOn: next });
-      return next;
-    });
-  };
+  // ── WebRTC: cámara/micrófono reales, mesh P2P y compartir pantalla ─────
+  // El hook abre su PROPIO socket contra el Signaling Server (Repo 3,
+  // VITE_WEBRTC_URL) y gestiona las RTCPeerConnection con cada peer. La
+  // presencia/descubrimiento la hace ese servidor (evento `introduction`),
+  // no el socket del chat. Al alternar mic/cam publicamos además el estado
+  // por el socket del room-service para que el resto vea los iconos.
+  const {
+    localStream,
+    screenStream,
+    remoteStreams,
+    micOn,
+    camOn,
+    screenSharing,
+    toggleMic,
+    toggleCam,
+    toggleScreenShare,
+    mediaError,
+  } = useWebRTC({
+    roomId,
+    identity: user
+      ? { uid: user.uid, username: user.username, avatar: user.avatar }
+      : null,
+    enabled: !!roomId && !!user,
+    onLocalMediaChange: publishMediaState,
+  });
 
   // ── Participantes en pantalla ──────────────────────────────────────────
   // El grid muestra ÚNICAMENTE quienes están actualmente conectados:
@@ -345,10 +349,12 @@ export default function RoomPage() {
       ),
     },
     {
-      label: screenOn ? "Dejar de compartir" : "Compartir pantalla",
-      active: screenOn,
+      label: screenSharing ? "Dejar de compartir" : "Compartir pantalla",
+      active: screenSharing,
       isToggle: false,
-      onClick: () => setScreenOn((v) => !v),
+      onClick: () => {
+        void toggleScreenShare();
+      },
       icon: (
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
@@ -511,6 +517,16 @@ export default function RoomPage() {
         </div>
       </header>
 
+      {/* Aviso si no se pudo acceder a cámara/micrófono (permisos / hardware). */}
+      {mediaError && (
+        <div
+          role="alert"
+          className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm font-medium text-amber-200 sm:px-6"
+        >
+          {mediaError}
+        </div>
+      )}
+
       {/* Tarea 5: aviso de username duplicado (USERNAME_ALREADY_CONNECTED). */}
       {duplicateUsername && (
         <div
@@ -563,22 +579,22 @@ export default function RoomPage() {
       )}
 
       {/* ── Cuerpo: video + chat ────────────────────────────────────────── */}
-      {/* `min-h-0` + `flex-1` permiten que el grid ocupe el alto restante y que
-          el chat haga scroll interno. En móvil la página puede desplazarse
-          (overflow-y-auto); en desktop el alto queda fijo a la ventana. */}
+      {/* En móvil es una columna flex que reparte el alto disponible SIN scroll
+          de página (todo queda fijo). En desktop pasa a grid de 2 columnas.
+          `min-h-0` permite que el chat haga scroll interno en lugar de crecer. */}
       <main
         id="main-content"
         tabIndex={-1}
         className={cn(
-          "mx-auto grid w-full max-w-[1400px] min-h-0 flex-1 gap-4 px-4 py-4 sm:px-6",
-          "overflow-y-auto lg:grid-rows-1 lg:overflow-hidden",
+          "mx-auto flex w-full max-w-[1400px] min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 py-4 sm:px-6",
+          "lg:grid lg:grid-rows-1",
           chatVisible ? "lg:grid-cols-[1fr_360px]" : "lg:grid-cols-1"
         )}
       >
         {/* Cuadrícula de video */}
         <section
           aria-labelledby="region-stage"
-          className="flex min-h-[420px] flex-col rounded-2xl bg-slate-950/60 p-3 ring-1 ring-slate-800 lg:min-h-0"
+          className="flex min-h-0 flex-1 flex-col rounded-2xl bg-slate-950/60 p-3 ring-1 ring-slate-800"
         >
           <h2 id="region-stage" className="sr-only">
             Área de video y compartición de pantalla
@@ -592,8 +608,17 @@ export default function RoomPage() {
                 // demás, leemos el estado replicado por el socket
                 // (default true si aún no llegó nada para ese uid).
                 const remote = mediaStates[p.uid];
+                // Stream a pintar: el propio (cámara o pantalla si comparte),
+                // o el stream remoto resuelto por socketId.
+                const stream = p.isYou
+                  ? screenSharing
+                    ? screenStream
+                    : localStream
+                  : remoteStreams[p.uid] ?? null;
+                // Al compartir pantalla mostramos siempre el video propio,
+                // ignorando el estado de la cámara.
                 const tileCameraOff = p.isYou
-                  ? !camOn
+                  ? !screenSharing && !camOn
                   : remote
                   ? !remote.camOn
                   : false;
@@ -610,6 +635,10 @@ export default function RoomPage() {
                     isYou={p.isYou}
                     cameraOff={tileCameraOff}
                     micOff={tileMicOff}
+                    stream={stream ?? undefined}
+                    // El tile propio va silenciado para evitar eco/acople.
+                    muted={p.isYou}
+                    mirror={p.isYou && !screenSharing}
                   />
                 );
               }
@@ -619,10 +648,10 @@ export default function RoomPage() {
         </section>
 
         {/* Panel chat — se puede ocultar con el botón de la barra inferior.
-            En móvil tiene una altura fija (scroll interno propio); en desktop
-            ocupa todo el alto de la fila. */}
+            En móvil comparte el alto con el video (flex-1) y hace scroll
+            interno; en desktop ocupa todo el alto de la fila. */}
         {chatVisible && (
-          <div className="flex h-[24rem] min-h-0 min-w-0 flex-col lg:h-full">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:h-full">
             <ChatPanel
               currentUid={user?.uid ?? ""}
               messages={chatMessages}
@@ -793,35 +822,85 @@ interface VideoTileProps {
   isYou?: boolean;
   cameraOff?: boolean;
   micOff?: boolean;
+  /** MediaStream de la cámara/pantalla a renderizar (local o remoto). */
+  stream?: MediaStream;
+  /** Silenciar el `<video>` (siempre true para el tile propio: evita eco). */
+  muted?: boolean;
+  /** Espejar horizontalmente (cámara propia, no al compartir pantalla). */
+  mirror?: boolean;
 }
 
-function VideoTile({ name, avatar, isYou, cameraOff, micOff }: VideoTileProps) {
+function VideoTile({
+  name,
+  avatar,
+  isYou,
+  cameraOff,
+  micOff,
+  stream,
+  muted,
+  mirror,
+}: VideoTileProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // `srcObject` no se puede setear como atributo JSX → lo asignamos por ref.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (el.srcObject !== (stream ?? null)) {
+      el.srcObject = stream ?? null;
+    }
+  }, [stream]);
+
+  // Mostramos el video cuando hay stream y la cámara no está marcada apagada.
+  const showVideo = !!stream && !cameraOff;
+
   return (
     <li
       aria-label={`Video de ${name}${cameraOff ? " (cámara apagada)" : ""}`}
       className={cn(
         "relative flex aspect-video items-center justify-center overflow-hidden rounded-xl",
-        cameraOff
+        showVideo
+          ? "bg-slate-950 ring-1 ring-slate-600"
+          : cameraOff
           ? "bg-slate-800 ring-1 ring-slate-700"
           : "bg-gradient-to-br from-slate-700 to-slate-900 ring-1 ring-slate-600"
       )}
     >
-      {avatar ? (
-        <img
-          src={avatar}
-          alt=""
-          aria-hidden="true"
-          className={cn(
-            "h-24 w-24 rounded-full object-cover ring-4 ring-slate-900/40 sm:h-32 sm:w-32",
-            cameraOff && "opacity-50 grayscale"
-          )}
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = "none";
-          }}
-        />
-      ) : (
-        <Avatar name={name} size="xl" className="ring-4 ring-slate-900/40" />
-      )}
+      {/* El elemento de video siempre está montado (para conservar la
+          conexión de la pista); se oculta cuando no hay que mostrarlo.
+          Sin <track>: es video en vivo (cámara/pantalla), no hay subtítulos. */}
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        className={cn(
+          "absolute inset-0 h-full w-full bg-slate-950 object-cover",
+          // El video propio se espeja (sensación de "espejo"), salvo al
+          // compartir pantalla, donde el espejo confundiría.
+          mirror && "scale-x-[-1]",
+          showVideo ? "block" : "hidden"
+        )}
+      />
+
+      {!showVideo &&
+        (avatar ? (
+          <img
+            src={avatar}
+            alt=""
+            aria-hidden="true"
+            className={cn(
+              "h-24 w-24 rounded-full object-cover ring-4 ring-slate-900/40 sm:h-32 sm:w-32",
+              cameraOff && "opacity-50 grayscale"
+            )}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        ) : (
+          <Avatar name={name} size="xl" className="ring-4 ring-slate-900/40" />
+        ))}
 
       {/* Etiqueta nombre (top-left) */}
       <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 rounded-md bg-slate-950/70 px-2 py-0.5 text-xs font-medium text-slate-100 backdrop-blur">

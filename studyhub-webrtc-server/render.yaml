@@ -1,0 +1,20 @@
+services:
+  # Signaling Server WebRTC (Repositorio 3). Se despliega como un servicio web
+  # APARTE del room-service y del chat-service, en su propia URL de Render.
+  # No necesita Firebase ni base de datos: es un relay puro de señalización
+  # (offer / answer / ICE). El estado de salas/peers vive en memoria.
+  - type: web
+    name: studyhub-webrtc-server
+    runtime: node
+    # --include=dev necesario: TypeScript y @types/* están en devDependencies
+    # y NODE_ENV=production los excluiría con un npm install plano.
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # PORT lo asigna Render automáticamente, no fijar. Socket.IO escucha en
+      # ese mismo puerto bajo el path por defecto (/socket.io).
+      - key: CORS_ORIGIN
+        # Orígenes del frontend (coma-separados). Ej.: https://tu-frontend.vercel.app
+        sync: false

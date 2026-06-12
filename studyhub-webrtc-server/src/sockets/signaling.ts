@@ -4,34 +4,39 @@
  * Es un **relay puro**: NO crea ni termina conexiones de medios, solo reenvía
  * los mensajes de señalización (offer / answer / ICE) entre los navegadores
  * para que ellos negocien la conexión P2P directa. El video/audio NUNCA pasa
- * por este servidor.
+ * por este servidor — pero el servidor SÍ debe mantener la sesión estable
+ * mientras hay streams activos (descubrimiento, reconexión y estados de medios).
  *
  * Topología asumida por el frontend: malla completa (cada par de peers abre
  * una RTCPeerConnection directa). Apropiado para salas pequeñas (grid 2x2).
  *
- * Contrato de eventos (lo que pidió el profesor):
- *   - `introduction` (Tarea 4): un peer entra a una sala y anuncia quién es.
- *       El server responde QUIÉN ESTÁ CONECTADO (al recién llegado) y avisa
- *       QUIÉN ENTRA (a los que ya estaban). Con esa lista, cada cliente decide
- *       con qué peers abrir conexión (el de socketId mayor inicia la oferta,
- *       para evitar "glare").
- *   - `signal` (Tarea 5): transporta offer/answer/ICE SIN MODIFICAR. El server
- *       únicamente lo reenvía al destinatario (`to`).
- *   - `disconnect` (Tarea 6): al salir, se limpia el peer de la sala y se
- *       notifica al resto con `peer-left`.
+ * Contrato de eventos:
+ *   - `introduction`: un peer entra a una sala y anuncia quién es. El server
+ *       responde QUIÉN ESTÁ CONECTADO (al recién llegado) y avisa QUIÉN ENTRA
+ *       (a los que ya estaban). El de socketId mayor inicia la oferta (anti-glare).
+ *   - `signal`: transporta offer/answer/ICE SIN MODIFICAR. Solo se reenvía a `to`.
+ *   - `media-state`: estado de micrófono/cámara (on/off). Se guarda y se reenvía
+ *       a la sala; los nuevos joiners lo reciben en `introduction`.
+ *   - `stream-started`: el peer ya tiene su media local lista (evidencia/logs).
+ *   - `media-error`: el peer no pudo acceder a cámara/micrófono.
+ *   - `disconnect` → `peer-left`: al salir se limpia el peer y se notifica.
  *
- * Logs (Tarea 7): usuario conectado, offer/answer/ICE reenviados, usuario
- * desconectado — todos con timestamp ISO vía `logger`.
+ * Reconexión: `connectionStateRecovery` (ver server.ts) recupera la sesión tras
+ * cortes breves; aquí detectamos `socket.recovered` para re-registrar el peer y
+ * loguear la reconexión.
+ *
+ * Logs: usuario conectado, reconexión, inicio de stream, offer/answer/ICE
+ * reenviados, estado multimedia, error multimedia y usuario desconectado.
  */
 
 import { Server, Socket } from "socket.io";
 import { logger } from "../utils/logger";
 
-// ─── Tarea 3: estructura de peers / salas ────────────────────────────────────
+// ─── Estructura de peers / salas ─────────────────────────────────────────────
 //
 //   rooms = {
 //     "sala1": Map {
-//       "socketIdA" => { socketId, uid, username, avatar },
+//       "socketIdA" => { socketId, uid, username, avatar, micOn, camOn },
 //       "socketIdB" => { ... }
 //     }
 //   }
@@ -45,6 +50,9 @@ export interface PeerInfo {
   uid?: string;
   username: string;
   avatar?: string;
+  /** Estado de medios publicado por el peer (default: encendidos). */
+  micOn: boolean;
+  camOn: boolean;
 }
 
 const rooms: Record<string, Map<string, PeerInfo>> = {};
@@ -75,12 +83,35 @@ const signalKind = (signal: unknown): string => {
 
 export const initSignaling = (io: Server): void => {
   io.on("connection", (socket: Socket) => {
-    // Tarea 7 — log de conexión.
-    logger.info(`Usuario conectado: ${socket.id}`);
+    // Tarea 2/4 — distinguir conexión nueva de RECONEXIÓN recuperada.
+    // `socket.recovered` lo marca `connectionStateRecovery` cuando el cliente
+    // volvió tras un corte breve: socket.data y socket.rooms quedan restaurados.
+    if (socket.recovered) {
+      const peer = socket.data.peer as PeerInfo | undefined;
+      const roomId = socket.data.roomId as string | undefined;
+      // El handler de `disconnect` pudo haber sacado al peer del mapa; lo
+      // re-registramos y reavisamos a la sala para rehacer la malla.
+      if (peer && roomId) {
+        if (!rooms[roomId]) rooms[roomId] = new Map();
+        rooms[roomId].set(socket.id, peer);
+        socket.join(roomId);
+        socket.to(roomId).emit("introduction", {
+          roomId,
+          self: socket.id,
+          peers: [peer],
+        });
+      }
+      logger.info(
+        `Reconexión: ${socket.data.peer?.username ?? "(desconocido)"} (${socket.id})` +
+          (roomId ? ` recuperó la sala "${roomId}"` : "")
+      );
+    } else {
+      logger.info(`Usuario conectado: ${socket.id}`);
+    }
 
     // ──────────────────────────────────────────────────────────────────────
-    // introduction (Tarea 4) — el peer entra a la sala y se presenta.
-    // Payload: { roomId, uid?, username?, avatar? }
+    // introduction — el peer entra a la sala y se presenta.
+    // Payload: { roomId, uid?, username?, avatar?, micOn?, camOn? }
     // ──────────────────────────────────────────────────────────────────────
     socket.on(
       "introduction",
@@ -89,6 +120,8 @@ export const initSignaling = (io: Server): void => {
         uid?: string;
         username?: string;
         avatar?: string;
+        micOn?: boolean;
+        camOn?: boolean;
       }) => {
         const roomId = payload?.roomId;
         if (!roomId || typeof roomId !== "string") {
@@ -99,11 +132,18 @@ export const initSignaling = (io: Server): void => {
           return;
         }
 
+        // Preservamos el estado de medios previo (re-introduction tras
+        // reconexión); si no, default encendidos salvo que el payload lo diga.
+        const prev = socket.data.peer as PeerInfo | undefined;
         const peer: PeerInfo = {
           socketId: socket.id,
           uid: payload.uid,
           username: (payload.username || "Anónimo").toString().slice(0, 80),
           avatar: payload.avatar,
+          micOn:
+            typeof payload.micOn === "boolean" ? payload.micOn : prev?.micOn ?? true,
+          camOn:
+            typeof payload.camOn === "boolean" ? payload.camOn : prev?.camOn ?? true,
         };
 
         // Si el socket ya estaba en otra sala (re-introduction), lo sacamos.
@@ -146,25 +186,87 @@ export const initSignaling = (io: Server): void => {
     );
 
     // ──────────────────────────────────────────────────────────────────────
-    // signal (Tarea 5) — relay puro de offer / answer / ICE. Sin modificar.
+    // signal — relay puro de offer / answer / ICE. Sin modificar.
     // Payload: { to: socketId, signal: <SDP | ICECandidate> }
     // ──────────────────────────────────────────────────────────────────────
+    socket.on("signal", (payload: { to?: string; signal?: unknown }) => {
+      const to = payload?.to;
+      const signal = payload?.signal;
+      if (!to || typeof to !== "string" || signal == null) return;
+
+      // Log del tipo de señal reenviada (no se toca el contenido).
+      logger.info(
+        `Signal [${signalKind(signal)}] reenviada: ${socket.id} → ${to}`
+      );
+
+      // Reenvío íntegro al destinatario, anexando solo quién la envía.
+      io.to(to).emit("signal", { from: socket.id, signal });
+    });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // stream-started — el peer ya tiene su media local lista (Tarea 1/4).
+    // Útil como evidencia: el signaling sigue estable con streams activos.
+    // Payload: { roomId? }
+    // ──────────────────────────────────────────────────────────────────────
+    socket.on("stream-started", () => {
+      const peer = socket.data.peer as PeerInfo | undefined;
+      const roomId = socket.data.roomId as string | undefined;
+      logger.info(
+        `Inicio de stream: ${peer?.username ?? socket.id}` +
+          (roomId ? ` en la sala "${roomId}"` : "")
+      );
+    });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // media-state — sincronización de micrófono / cámara (on/off) (Tarea 3).
+    // Payload: { micOn?, camOn? }. Se guarda en el peer y se reenvía a la sala;
+    // los nuevos joiners lo reciben dentro de `introduction`.
+    // ──────────────────────────────────────────────────────────────────────
     socket.on(
-      "signal",
-      (payload: { to?: string; signal?: unknown }) => {
-        const to = payload?.to;
-        const signal = payload?.signal;
-        if (!to || typeof to !== "string" || signal == null) return;
+      "media-state",
+      (payload: { micOn?: boolean; camOn?: boolean }) => {
+        const roomId = socket.data.roomId as string | undefined;
+        const peer = socket.data.peer as PeerInfo | undefined;
+        if (!roomId || !peer || !rooms[roomId]) return;
 
-        // Tarea 7 — log del tipo de señal reenviada (no se toca el contenido).
+        if (typeof payload?.micOn === "boolean") peer.micOn = payload.micOn;
+        if (typeof payload?.camOn === "boolean") peer.camOn = payload.camOn;
+        rooms[roomId].set(socket.id, peer);
+
+        socket.to(roomId).emit("media-state", {
+          socketId: socket.id,
+          uid: peer.uid,
+          micOn: peer.micOn,
+          camOn: peer.camOn,
+        });
+
         logger.info(
-          `Signal [${signalKind(signal)}] reenviada: ${socket.id} → ${to}`
+          `Estado multimedia: ${peer.username} (${socket.id}) → ` +
+            `mic ${peer.micOn ? "ON" : "OFF"}, cam ${peer.camOn ? "ON" : "OFF"}`
         );
-
-        // Reenvío íntegro al destinatario, anexando solo quién la envía.
-        io.to(to).emit("signal", { from: socket.id, signal });
       }
     );
+
+    // ──────────────────────────────────────────────────────────────────────
+    // media-error — el peer no pudo acceder a cámara/micrófono (Tarea 4).
+    // Payload: { reason?: string }
+    // ──────────────────────────────────────────────────────────────────────
+    socket.on("media-error", (payload: { reason?: string }) => {
+      const peer = socket.data.peer as PeerInfo | undefined;
+      const roomId = socket.data.roomId as string | undefined;
+      const reason = (payload?.reason || "desconocido").toString().slice(0, 200);
+      logger.error(
+        `Error multimedia: ${peer?.username ?? socket.id} — ${reason}`
+      );
+      // Avisar a la sala (opcional para la UI: "X tiene problemas de medios").
+      if (roomId) {
+        socket.to(roomId).emit("media-error", {
+          socketId: socket.id,
+          uid: peer?.uid,
+          reason,
+        });
+      }
+    });
 
     // Error de transporte a nivel de socket.
     socket.on("error", (err) => {
@@ -172,7 +274,7 @@ export const initSignaling = (io: Server): void => {
     });
 
     // ──────────────────────────────────────────────────────────────────────
-    // disconnect (Tarea 6) — limpieza de peer / sala / socket + notificación.
+    // disconnect — limpieza de peer / sala / socket + notificación.
     // ──────────────────────────────────────────────────────────────────────
     socket.on("disconnect", (reason: string) => {
       const roomId = socket.data.roomId as string | undefined;

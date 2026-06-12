@@ -33,6 +33,8 @@ interface PeerInfo {
   uid?: string;
   username?: string;
   avatar?: string;
+  micOn?: boolean;
+  camOn?: boolean;
 }
 interface IntroductionEvent {
   roomId: string;
@@ -83,6 +85,8 @@ export interface UseWebRTCResult {
   screenStream: MediaStream | null;
   /** Stream remoto por uid del participante. */
   remoteStreams: Record<string, MediaStream>;
+  /** Estado mic/cam remoto por uid (sincronizado vía `media-state`). */
+  remoteMedia: Record<string, { micOn: boolean; camOn: boolean }>;
   micOn: boolean;
   camOn: boolean;
   screenSharing: boolean;
@@ -110,10 +114,16 @@ export function useWebRTC({
   const [remoteStreams, setRemoteStreams] = useState<
     Record<string, MediaStream>
   >({});
+  const [remoteMedia, setRemoteMedia] = useState<
+    Record<string, { micOn: boolean; camOn: boolean }>
+  >({});
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [screenSharing, setScreenSharing] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  // Pasa a true cuando el intento de getUserMedia termina (con éxito o no),
+  // momento en el que el socket de señalización puede arrancar.
+  const [mediaReady, setMediaReady] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -122,12 +132,22 @@ export function useWebRTC({
   const peersRef = useRef<Map<string, PeerCtx>>(new Map());
   /** socketId → uid, sembrado en `introduction` antes de llegar los `signal`. */
   const uidBySocketRef = useRef<Map<string, string>>(new Map());
+  /** Estado de medios local actual (para anunciarlo en introduction/toggles). */
+  const mediaStateRef = useRef({ micOn: true, camOn: true });
+  /** Motivo de error de medios pendiente de reportar al server al conectar. */
+  const mediaErrorRef = useRef<string | null>(null);
 
   // Callbacks/identidad estables para no recrear listeners en cada render.
   const onMediaChangeRef = useRef(onLocalMediaChange);
   onMediaChangeRef.current = onLocalMediaChange;
   const identityRef = useRef(identity);
   identityRef.current = identity;
+
+  // Emite el estado mic/cam al signaling server (Tarea 3), si hay socket.
+  const emitMediaState = useCallback((state: { micOn: boolean; camOn: boolean }) => {
+    const s = socketRef.current;
+    if (s && s.connected) s.emit("media-state", state);
+  }, []);
 
   // ── Quitar el stream remoto asociado a un uid ───────────────────────────
   const dropRemoteStream = useCallback((uid?: string) => {
@@ -264,13 +284,16 @@ export function useWebRTC({
           });
           if (!cancelled) {
             setCamOn(false);
+            mediaStateRef.current.camOn = false;
             onMediaChangeRef.current?.({ micOn: true, camOn: false });
+            mediaErrorRef.current = "camara_denegada";
             setMediaError(
               "No se pudo acceder a la cámara. Continúas solo con audio."
             );
           }
         } catch {
           if (!cancelled) {
+            mediaErrorRef.current = "camara_y_microfono_denegados";
             setMediaError(
               "No se pudo acceder a la cámara ni al micrófono. Revisa los permisos del navegador."
             );
@@ -287,6 +310,8 @@ export function useWebRTC({
         cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
         setLocalStream(stream);
       }
+      // El intento terminó (con o sin media): el socket ya puede arrancar.
+      setMediaReady(true);
     })();
 
     return () => {
@@ -296,17 +321,21 @@ export function useWebRTC({
       cameraTrackRef.current = null;
       screenTrackRef.current?.stop();
       screenTrackRef.current = null;
+      mediaErrorRef.current = null;
+      mediaStateRef.current = { micOn: true, camOn: true };
       setLocalStream(null);
       setScreenStream(null);
       setScreenSharing(false);
+      setMediaReady(false);
     };
   }, [enabled, roomId]);
 
   // ── Efecto 2: socket de señalización + ciclo de vida de la malla ───────
-  // Arranca cuando ya tenemos media local (las pistas están listas para
-  // adjuntarse a las RTCPeerConnection que se creen).
+  // Arranca cuando el intento de media terminó (`mediaReady`): si hubo stream,
+  // las pistas ya están listas para adjuntarse; si no, entramos en modo
+  // recepción (recvonly) y reportamos `media-error`.
   useEffect(() => {
-    if (!enabled || !roomId || !localStream) return;
+    if (!enabled || !roomId || !mediaReady) return;
     const id = identityRef.current;
     if (!id) return;
 
@@ -314,12 +343,21 @@ export function useWebRTC({
     socketRef.current = socket;
 
     const introduce = () => {
+      const { micOn: m, camOn: c } = mediaStateRef.current;
+      // Anunciamos quién somos y nuestro estado de medios actual.
       socket.emit("introduction", {
         roomId,
         uid: id.uid,
         username: id.username,
         avatar: id.avatar,
+        micOn: m,
+        camOn: c,
       });
+      // Evidencia de que el stream local está listo (o reporte de error).
+      if (localStreamRef.current) socket.emit("stream-started");
+      if (mediaErrorRef.current) {
+        socket.emit("media-error", { reason: mediaErrorRef.current });
+      }
     };
 
     // `introduction` (server → cliente): lista de peers. Para cada peer, el
@@ -330,6 +368,13 @@ export function useWebRTC({
         // Sembrar el uid para todos (también para el lado que espera la
         // oferta, así puede asociar el stream cuando llegue por `signal`).
         if (p.uid) uidBySocketRef.current.set(p.socketId, p.uid);
+        // Sembrar el estado mic/cam inicial del peer (Tarea 3).
+        if (p.uid && (typeof p.micOn === "boolean" || typeof p.camOn === "boolean")) {
+          setRemoteMedia((prev) => ({
+            ...prev,
+            [p.uid!]: { micOn: p.micOn ?? true, camOn: p.camOn ?? true },
+          }));
+        }
         const ctx = peersRef.current.get(p.socketId);
         if (ctx) {
           if (p.uid && !ctx.uid) ctx.uid = p.uid;
@@ -371,10 +416,26 @@ export function useWebRTC({
 
     const onPeerLeft = ({ socketId }: PeerLeftEvent) => closePeer(socketId);
 
+    // `media-state` (server → cliente): mic/cam de un peer cambió.
+    const onRemoteMediaState = ({
+      uid,
+      micOn: m,
+      camOn: c,
+    }: {
+      socketId: string;
+      uid?: string;
+      micOn: boolean;
+      camOn: boolean;
+    }) => {
+      if (!uid) return;
+      setRemoteMedia((prev) => ({ ...prev, [uid]: { micOn: m, camOn: c } }));
+    };
+
     socket.on("connect", introduce);
     socket.on("introduction", onIntroduction);
     socket.on("signal", onSignal);
     socket.on("peer-left", onPeerLeft);
+    socket.on("media-state", onRemoteMediaState);
     if (socket.connected) introduce();
 
     return () => {
@@ -382,6 +443,7 @@ export function useWebRTC({
       socket.off("introduction", onIntroduction);
       socket.off("signal", onSignal);
       socket.off("peer-left", onPeerLeft);
+      socket.off("media-state", onRemoteMediaState);
       // Cerrar todas las conexiones y desconectar el socket dedicado.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       const peerMap = peersRef.current;
@@ -394,10 +456,11 @@ export function useWebRTC({
       });
       peerMap.clear();
       setRemoteStreams({});
+      setRemoteMedia({});
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [enabled, roomId, localStream, ensurePeer, closePeer]);
+  }, [enabled, roomId, mediaReady, ensurePeer, closePeer]);
 
   // ── Toggles de mic/cam (habilitan/inhabilitan la pista, sin renegociar) ─
   const toggleMic = useCallback(() => {
@@ -406,10 +469,12 @@ export function useWebRTC({
       localStreamRef.current
         ?.getAudioTracks()
         .forEach((t) => (t.enabled = next));
-      onMediaChangeRef.current?.({ micOn: next, camOn });
+      mediaStateRef.current = { micOn: next, camOn };
+      onMediaChangeRef.current?.({ micOn: next, camOn }); // room-service
+      emitMediaState({ micOn: next, camOn }); // signaling server (Tarea 3)
       return next;
     });
-  }, [camOn]);
+  }, [camOn, emitMediaState]);
 
   const toggleCam = useCallback(() => {
     setCamOn((prev) => {
@@ -421,10 +486,12 @@ export function useWebRTC({
           ?.getVideoTracks()
           .forEach((t) => (t.enabled = next));
       }
-      onMediaChangeRef.current?.({ micOn, camOn: next });
+      mediaStateRef.current = { micOn, camOn: next };
+      onMediaChangeRef.current?.({ micOn, camOn: next }); // room-service
+      emitMediaState({ micOn, camOn: next }); // signaling server (Tarea 3)
       return next;
     });
-  }, [micOn, screenSharing]);
+  }, [micOn, screenSharing, emitMediaState]);
 
   // ── Compartir pantalla (replaceTrack → sin renegociación cuando hay
   //    sender de video; addTrack si la cámara fue denegada) ───────────────
@@ -489,6 +556,7 @@ export function useWebRTC({
     localStream,
     screenStream,
     remoteStreams,
+    remoteMedia,
     micOn,
     camOn,
     screenSharing,

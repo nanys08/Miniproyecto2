@@ -57,26 +57,48 @@ rooms = {
 |---|---|---|---|
 | \`introduction\` | client → server | \`{ roomId, uid?, username?, avatar? }\` | **Tarea 4.** El peer entra a la sala y se presenta. |
 | \`introduction\` | server → client | \`{ roomId, self, peers: PeerInfo[] }\` | Al recién llegado: **quién está conectado**. A los demás: **quién entra** (\`peers\` con el nuevo). |
-| \`signal\` | client → server | \`{ to, signal }\` | **Tarea 5.** Transporta offer/answer/ICE. El server lo reenvía **sin modificar** a \`to\`. |
+| \`signal\` | client → server | \`{ to, signal }\` | Transporta offer/answer/ICE. El server lo reenvía **sin modificar** a \`to\`. |
 | \`signal\` | server → client | \`{ from, signal }\` | El mismo payload, anexando quién lo envió. |
-| \`peer-left\` | server → sala | \`{ socketId, uid?, roomId }\` | **Tarea 6.** Un peer se desconectó; los demás cierran su conexión con él. |
+| \`stream-started\` | client → server | \`{ }\` | El peer ya tiene su media local lista. Solo para logs/evidencia. |
+| \`media-state\` | client → server | \`{ micOn?, camOn? }\` | Estado de micrófono/cámara. Se guarda en el peer y se reenvía a la sala. |
+| \`media-state\` | server → sala | \`{ socketId, uid?, micOn, camOn }\` | Cambio de mic/cam de un peer. Los nuevos joiners reciben el estado en \`introduction\`. |
+| \`media-error\` | client → server | \`{ reason? }\` | El peer no pudo acceder a cámara/micrófono. |
+| \`media-error\` | server → sala | \`{ socketId, uid?, reason }\` | Aviso a la sala del problema de medios. |
+| \`peer-left\` | server → sala | \`{ socketId, uid?, roomId }\` | Un peer se desconectó; los demás cierran su conexión con él. |
 | \`signal-error\` | server → client | \`{ error, message }\` | \`introduction\` sin \`roomId\` válido. |
 
 > El cliente decide **quién inicia la oferta** comparando \`socketId\` (el mayor
 > ofrece) para evitar colisiones ("glare"). El server no participa en esa
 > decisión: solo reenvía.
 
-## Logs (Tarea 7)
+## Transmisión multimedia y estabilidad
+
+Aunque el **audio/video viaja P2P** (no pasa por aquí), el servidor garantiza
+una sesión estable mientras hay streams activos:
+
+- **Señalización con streams:** \`offer\`/\`answer\`/\`ICE\` se reenvían igual con o
+  sin media (el relay es agnóstico al contenido).
+- **Reconexión:** \`connectionStateRecovery\` recupera la sesión tras cortes
+  breves (≤2 min) sin perder los \`signal\` en vuelo. El handler detecta
+  \`socket.recovered\`, re-registra el peer y reavisa a la sala.
+- **Estados de medios:** \`media-state\` mantiene sincronizados mic/cam entre
+  todos los peers (y para los que entran después, vía \`introduction\`).
+
+## Logs
 
 Cada acción se registra con timestamp ISO:
 
 \`\`\`
-[ts] INFO: Usuario conectado: <socketId>
-[ts] INFO: Introduction: <username> (<socketId>) entró a la sala "<roomId>". Conectados ahora: N
-[ts] INFO: Signal [OFFER] reenviada: <socketIdA> → <socketIdB>
-[ts] INFO: Signal [ANSWER] reenviada: <socketIdB> → <socketIdA>
-[ts] INFO: Signal [ICE] reenviada: <socketIdA> → <socketIdB>
-[ts] INFO: Usuario desconectado: <username> (<socketId>) — motivo: <reason>
+[ts] INFO:  Usuario conectado: <socketId>
+[ts] INFO:  Reconexión: <username> (<socketId>) recuperó la sala "<roomId>"
+[ts] INFO:  Introduction: <username> (<socketId>) entró a la sala "<roomId>". Conectados ahora: N
+[ts] INFO:  Inicio de stream: <username> en la sala "<roomId>"
+[ts] INFO:  Signal [OFFER]  reenviada: <socketIdA> → <socketIdB>
+[ts] INFO:  Signal [ANSWER] reenviada: <socketIdB> → <socketIdA>
+[ts] INFO:  Signal [ICE]    reenviada: <socketIdA> → <socketIdB>
+[ts] INFO:  Estado multimedia: <username> (<socketId>) → mic ON, cam OFF
+[ts] ERROR: Error multimedia: <username> — <reason>
+[ts] INFO:  Usuario desconectado: <username> (<socketId>) — motivo: <reason>
 \`\`\`
 `,
     },
@@ -98,7 +120,7 @@ Cada acción se registra con timestamp ISO:
           description:
             "Datos de un peer presente en una sala (Tarea 3). El audio/video " +
             "no pasa por aquí; solo se usa para la señalización y el grid.",
-          required: ["socketId", "username"],
+          required: ["socketId", "username", "micOn", "camOn"],
           properties: {
             socketId: { type: "string", example: "x8Jk2bQ..." },
             uid: { type: "string", example: "abc123", nullable: true },
@@ -108,6 +130,8 @@ Cada acción se registra con timestamp ISO:
               example: "https://.../avatar.png",
               nullable: true,
             },
+            micOn: { type: "boolean", example: true },
+            camOn: { type: "boolean", example: false },
           },
         },
       },

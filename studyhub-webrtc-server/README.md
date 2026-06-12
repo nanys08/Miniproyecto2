@@ -70,12 +70,34 @@ socket.emit("signal", { to: targetSocketId, signal });   // signal = SDP | ICECa
 socket.on("signal", ({ from, signal }) => { /* ... */ });
 ```
 
+### `media-state` (estados de micrófono / cámara)
+Sincroniza mic/cam entre peers. Se guarda en el peer y se reenvía a la sala;
+los que entran después lo reciben en `introduction`.
+
+```js
+// client → server
+socket.emit("media-state", { micOn: true, camOn: false });
+
+// server → resto de la sala
+socket.on("media-state", ({ socketId, uid, micOn, camOn }) => { /* ... */ });
+```
+
+### `stream-started` / `media-error`
+```js
+socket.emit("stream-started");                 // media local lista (logs)
+socket.emit("media-error", { reason: "..." }); // no se pudo acceder a cámara/micro
+```
+
 ### `disconnect` (Tarea 6)
 Al salir, el peer se elimina de la sala y se avisa al resto:
 
 ```js
 socket.on("peer-left", ({ socketId, uid, roomId }) => { /* cerrar conexión */ });
 ```
+
+### Reconexión
+`connectionStateRecovery` (≤2 min) recupera la sesión tras cortes breves sin
+perder los `signal` en vuelo. Ver `docs/arquitectura.md`.
 
 ## Estructura de salas (Tarea 3)
 

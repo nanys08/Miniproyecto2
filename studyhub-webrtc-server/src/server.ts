@@ -27,6 +27,16 @@ const io = new Server(httpServer, {
   // El cliente Socket.IO reintenta solo; aceptamos websocket y polling como
   // fallback (algunos proxies de Render tardan en negociar websocket en frío).
   transports: ["websocket", "polling"],
+  // Tarea 2 — Reconexión estable: ante un corte breve (cambio de red, túnel,
+  // suspensión), el cliente recupera la MISMA sesión sin perder los `signal`
+  // en vuelo. `socket.recovered` lo detecta en el handler de conexión.
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000,
+    skipMiddlewares: true,
+  },
+  // Pings algo más frecuentes para detectar caídas reales con rapidez.
+  pingInterval: 25_000,
+  pingTimeout: 20_000,
 });
 
 initSignaling(io);

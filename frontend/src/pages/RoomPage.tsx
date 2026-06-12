@@ -230,6 +230,7 @@ export default function RoomPage() {
     localStream,
     screenStream,
     remoteStreams,
+    remoteMedia,
     micOn,
     camOn,
     screenSharing,
@@ -607,7 +608,9 @@ export default function RoomPage() {
                 // (el toggle inmediato no espera al broadcast). Para los
                 // demás, leemos el estado replicado por el socket
                 // (default true si aún no llegó nada para ese uid).
-                const remote = mediaStates[p.uid];
+                // Estado mic/cam remoto: preferimos el del signaling server
+                // (remoteMedia) y caemos al del room-service (mediaStates).
+                const remote = remoteMedia[p.uid] ?? mediaStates[p.uid];
                 // Stream a pintar: el propio (cámara o pantalla si comparte),
                 // o el stream remoto resuelto por socketId.
                 const stream = p.isYou

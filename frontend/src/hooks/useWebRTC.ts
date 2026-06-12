@@ -135,6 +135,18 @@ export interface UseWebRTCResult {
   peerState: Record<string, RTCPeerConnectionState>;
   /** Reintenta pedir cámara/micrófono (botón "Reintentar tras habilitar"). */
   retryMedia: () => void;
+  /** Micrófonos disponibles (config individual de dispositivos). */
+  audioDevices: MediaDeviceInfo[];
+  /** Cámaras disponibles (config individual de dispositivos). */
+  videoDevices: MediaDeviceInfo[];
+  /** deviceId del micrófono actualmente en uso (o null). */
+  selectedMicId: string | null;
+  /** deviceId de la cámara actualmente en uso (o null). */
+  selectedCamId: string | null;
+  /** Cambia el micrófono en vivo (replaceTrack en los peers). */
+  switchAudioDevice: (deviceId: string) => Promise<void>;
+  /** Cambia la cámara en vivo (replaceTrack en los peers). */
+  switchVideoDevice: (deviceId: string) => Promise<void>;
 }
 
 /** Discrimina un payload de señal SDP (offer/answer) de un candidato ICE. */
@@ -142,6 +154,38 @@ const isSdp = (
   signal: RTCSessionDescriptionInit | RTCIceCandidateInit
 ): signal is RTCSessionDescriptionInit =>
   typeof (signal as RTCSessionDescriptionInit).type === "string";
+
+// ─── Selección de dispositivos (config individual por persona) ───────────────
+// Cada persona elige qué micrófono/cámara usar; la elección se guarda en
+// localStorage del navegador y se reaplica al volver a entrar a una sala.
+const MIC_STORAGE_KEY = "studyhub:webrtc:micId";
+const CAM_STORAGE_KEY = "studyhub:webrtc:camId";
+
+const readStoredDevice = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const writeStoredDevice = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* localStorage no disponible (modo privado): la elección no persiste */
+  }
+};
+
+/** Constraints de audio respetando el micrófono elegido (si hay). */
+const buildAudioConstraint = (
+  micId: string | null
+): MediaTrackConstraints | boolean => (micId ? { deviceId: { exact: micId } } : true);
+
+/** Constraints de video respetando la cámara elegida (si hay). */
+const buildVideoConstraint = (camId: string | null): MediaTrackConstraints =>
+  camId
+    ? { deviceId: { exact: camId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    : { width: { ideal: 1280 }, height: { ideal: 720 } };
 
 export function useWebRTC({
   roomId,
@@ -183,6 +227,38 @@ export function useWebRTC({
   // Permite reintentar getUserMedia (botón "Reintentar tras habilitar").
   const [retryKey, setRetryKey] = useState(0);
   const retryMedia = useCallback(() => setRetryKey((k) => k + 1), []);
+
+  // ── Config individual de dispositivos (mic/cámara) ──────────────────────
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  // Inicializamos con la última elección guardada (config persistente por
+  // persona). Tras obtener el stream lo ajustamos al dispositivo real en uso.
+  const [selectedMicId, setSelectedMicId] = useState<string | null>(() =>
+    readStoredDevice(MIC_STORAGE_KEY)
+  );
+  const [selectedCamId, setSelectedCamId] = useState<string | null>(() =>
+    readStoredDevice(CAM_STORAGE_KEY)
+  );
+  // Refs para leer la elección dentro del efecto de getUserMedia sin que un
+  // cambio de dispositivo vuelva a re-pedir todo el stream (eso lo hace
+  // switchAudio/VideoDevice con replaceTrack, sin reconectar).
+  const selectedMicIdRef = useRef(selectedMicId);
+  selectedMicIdRef.current = selectedMicId;
+  const selectedCamIdRef = useRef(selectedCamId);
+  selectedCamIdRef.current = selectedCamId;
+
+  // Lista de dispositivos disponibles (etiquetas visibles tras conceder
+  // permisos). Se refresca al conectar y ante `devicechange`.
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      setAudioDevices(list.filter((d) => d.kind === "audioinput"));
+      setVideoDevices(list.filter((d) => d.kind === "videoinput"));
+    } catch {
+      /* sin permisos aún: la lista quedará vacía */
+    }
+  }, []);
 
   // Callbacks de notificación estables (no recrean efectos/listeners).
   const onPeerJoinedRef = useRef(onPeerJoined);
@@ -392,10 +468,20 @@ export function useWebRTC({
       setMediaStatus("requesting");
       let stream: MediaStream | null = null;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        });
+        // Respetamos el micrófono/cámara elegidos por esta persona (si los
+        // hay). Si el dispositivo guardado ya no existe, reintentamos con los
+        // predeterminados antes de caer a "solo audio".
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: buildAudioConstraint(selectedMicIdRef.current),
+            video: buildVideoConstraint(selectedCamIdRef.current),
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          });
+        }
         if (!cancelled) setMediaStatus("granted");
       } catch {
         try {
@@ -437,6 +523,14 @@ export function useWebRTC({
           video: stream.getVideoTracks().length > 0,
         };
         setLocalStream(stream);
+        // Sincronizamos la selección con el dispositivo REALMENTE en uso
+        // (puede diferir del guardado si ya no existe) para que la config
+        // muestre el micrófono/cámara activos, y enumeramos los disponibles.
+        const usedMic = stream.getAudioTracks()[0]?.getSettings().deviceId;
+        const usedCam = stream.getVideoTracks()[0]?.getSettings().deviceId;
+        if (usedMic) setSelectedMicId(usedMic);
+        if (usedCam) setSelectedCamId(usedCam);
+        void refreshDevices();
       }
       // El intento terminó (con o sin media): el socket ya puede arrancar.
       setMediaReady(true);
@@ -457,7 +551,16 @@ export function useWebRTC({
       setScreenSharing(false);
       setMediaReady(false);
     };
-  }, [enabled, roomId, supported, retryKey]);
+  }, [enabled, roomId, supported, retryKey, refreshDevices]);
+
+  // ── Efecto: refrescar la lista ante conexión/desconexión de dispositivos ─
+  useEffect(() => {
+    if (!supported || !navigator.mediaDevices?.addEventListener) return;
+    const handler = () => void refreshDevices();
+    navigator.mediaDevices.addEventListener("devicechange", handler);
+    return () =>
+      navigator.mediaDevices.removeEventListener("devicechange", handler);
+  }, [supported, refreshDevices]);
 
   // ── Efecto 2: socket de señalización + ciclo de vida de la malla ───────
   // Arranca cuando el intento de media terminó (`mediaReady`): si hubo stream,
@@ -761,6 +864,106 @@ export function useWebRTC({
     }
   }, [screenSharing, startScreenShare, stopScreenShare]);
 
+  // ── Cambiar micrófono/cámara en vivo (config individual) ────────────────
+  // Pedimos una pista nueva del dispositivo elegido y la sustituimos con
+  // replaceTrack en cada peer (sin renegociar) y en el stream local. La
+  // elección se guarda para próximas sesiones de esta persona.
+  const switchAudioDevice = useCallback(
+    async (deviceId: string) => {
+      try {
+        const ns = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: deviceId } },
+        });
+        const newTrack = ns.getAudioTracks()[0];
+        if (!newTrack) return;
+        newTrack.enabled = mediaStateRef.current.micOn;
+        peersRef.current.forEach((ctx) => {
+          const sender = ctx.pc
+            .getSenders()
+            .find((s) => s.track?.kind === "audio");
+          sender?.replaceTrack(newTrack).catch(() => undefined);
+        });
+        const ls = localStreamRef.current;
+        if (ls) {
+          ls.getAudioTracks().forEach((t) => {
+            t.stop();
+            ls.removeTrack(t);
+          });
+          ls.addTrack(newTrack);
+          // Nuevo objeto MediaStream → la UI (tile + medidor de nivel) se
+          // reengancha a la pista de audio recién seleccionada.
+          setLocalStream(new MediaStream(ls.getTracks()));
+        } else {
+          localStreamRef.current = ns;
+          setLocalStream(ns);
+        }
+        writeStoredDevice(MIC_STORAGE_KEY, deviceId);
+        setSelectedMicId(deviceId);
+        void refreshDevices();
+        rtcLog(`Micrófono cambiado → ${deviceId}`);
+      } catch {
+        setMediaError("No se pudo cambiar el micrófono seleccionado.");
+      }
+    },
+    [refreshDevices]
+  );
+
+  const switchVideoDevice = useCallback(
+    async (deviceId: string) => {
+      // Si estamos compartiendo pantalla, solo guardamos la preferencia: la
+      // cámara real volverá a usarse al dejar de compartir.
+      if (screenTrackRef.current) {
+        writeStoredDevice(CAM_STORAGE_KEY, deviceId);
+        setSelectedCamId(deviceId);
+        return;
+      }
+      try {
+        const ns = await navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: { exact: deviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        });
+        const newTrack = ns.getVideoTracks()[0];
+        if (!newTrack) return;
+        newTrack.enabled = mediaStateRef.current.camOn;
+        cameraTrackRef.current = newTrack;
+        peersRef.current.forEach((ctx) => {
+          const sender = ctx.pc
+            .getSenders()
+            .find((s) => s.track?.kind === "video");
+          if (sender) {
+            sender.replaceTrack(newTrack).catch(() => undefined);
+          } else {
+            // No había pista de video (cámara antes denegada): la añadimos →
+            // dispara renegociación para que los peers la reciban.
+            ctx.pc.addTrack(newTrack, ns);
+          }
+        });
+        const ls = localStreamRef.current;
+        if (ls) {
+          ls.getVideoTracks().forEach((t) => {
+            t.stop();
+            ls.removeTrack(t);
+          });
+          ls.addTrack(newTrack);
+          setLocalStream(new MediaStream(ls.getTracks()));
+        } else {
+          localStreamRef.current = ns;
+          setLocalStream(ns);
+        }
+        writeStoredDevice(CAM_STORAGE_KEY, deviceId);
+        setSelectedCamId(deviceId);
+        void refreshDevices();
+        rtcLog(`Cámara cambiada → ${deviceId}`);
+      } catch {
+        setMediaError("No se pudo cambiar la cámara seleccionada.");
+      }
+    },
+    [refreshDevices]
+  );
+
   // Hay peers cuya conexión P2P aún se está estableciendo (overlay
   // "Conectando participantes…").
   const peerConnecting = Object.values(peerState).some(
@@ -785,5 +988,11 @@ export function useWebRTC({
     peerConnecting,
     peerState,
     retryMedia,
+    audioDevices,
+    videoDevices,
+    selectedMicId,
+    selectedCamId,
+    switchAudioDevice,
+    switchVideoDevice,
   };
 }

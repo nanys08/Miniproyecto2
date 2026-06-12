@@ -35,6 +35,7 @@ import { getPublicUser, type PublicUser } from "@/services/users";
 import { friendlyError, type FriendlyError } from "@/services/apiErrors";
 import ChatPanel from "@/components/room/ChatPanel";
 import RoomSettingsModal from "@/components/rooms/RoomSettingsModal";
+import DeviceSettingsModal from "@/components/rooms/DeviceSettingsModal";
 import ErrorState from "@/components/ErrorState";
 import Loader from "@/components/Loader";
 import Avatar from "@/components/Avatar";
@@ -153,6 +154,8 @@ export default function RoomPage() {
   // ── Configuración de sala (solo anfitrión) ─────────────────────────────
   // La configuración se abre desde el menú "Más" de la barra inferior.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Config individual de dispositivos (mic/cámara) — disponible para todos.
+  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -243,6 +246,12 @@ export default function RoomPage() {
     peerConnecting,
     peerState,
     retryMedia,
+    audioDevices,
+    videoDevices,
+    selectedMicId,
+    selectedCamId,
+    switchAudioDevice,
+    switchVideoDevice,
   } = useWebRTC({
     roomId,
     identity: user
@@ -790,7 +799,30 @@ export default function RoomPage() {
                   aria-label="Más opciones"
                   className="absolute bottom-full left-0 z-20 mb-2 min-w-[230px] rounded-lg border border-slate-700 bg-slate-900 p-1.5 shadow-xl"
                 >
-                  {isHost ? (
+                  {/* Config de dispositivos (mic/cámara) — disponible para
+                      todos los participantes, no solo el anfitrión. */}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setDeviceSettingsOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8" />
+                    </svg>
+                    <span className="flex flex-col">
+                      Configuración de dispositivos
+                      <span className="text-xs font-normal text-slate-400">
+                        Elegir micrófono y cámara
+                      </span>
+                    </span>
+                  </button>
+
+                  {isHost && (
                     <button
                       type="button"
                       role="menuitem"
@@ -811,10 +843,6 @@ export default function RoomPage() {
                         </span>
                       </span>
                     </button>
-                  ) : (
-                    <p className="px-3 py-2.5 text-sm text-slate-400">
-                      No hay opciones adicionales disponibles.
-                    </p>
                   )}
                 </div>
               )}
@@ -873,6 +901,21 @@ export default function RoomPage() {
           returnFocusRef={moreBtnRef}
         />
       )}
+
+      {/* ── Configuración individual de dispositivos (mic/cámara) ───────── */}
+      <DeviceSettingsModal
+        open={deviceSettingsOpen}
+        onClose={() => setDeviceSettingsOpen(false)}
+        audioDevices={audioDevices}
+        videoDevices={videoDevices}
+        selectedMicId={selectedMicId}
+        selectedCamId={selectedCamId}
+        onSelectMic={switchAudioDevice}
+        onSelectCam={switchVideoDevice}
+        localStream={localStream}
+        micOn={micOn}
+        returnFocusRef={moreBtnRef}
+      />
     </>
   );
 }

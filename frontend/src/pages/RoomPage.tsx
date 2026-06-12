@@ -34,7 +34,6 @@ import { getRoom, type Room } from "@/services/rooms";
 import { getPublicUser, type PublicUser } from "@/services/users";
 import { friendlyError, type FriendlyError } from "@/services/apiErrors";
 import ChatPanel from "@/components/room/ChatPanel";
-import ConnectionBadge from "@/components/room/ConnectionBadge";
 import RoomSettingsModal from "@/components/rooms/RoomSettingsModal";
 import ErrorState from "@/components/ErrorState";
 import Loader from "@/components/Loader";
@@ -376,17 +375,7 @@ export default function RoomPage() {
     },
   ];
 
-  // El indicador del header refleja el estado del CHAT-SERVICE (no el socket
-  // heredado), que es la conexión que le importa al usuario.
-  const CHAT_STATUS_LABELS: Record<string, string> = {
-    idle: "Preparando…",
-    connecting: "Conectando…",
-    connected: "Conectado",
-    reconnecting: "Reconectando…",
-    offline: "Sin conexión",
-    error: sessionReplaced ? "Sesión movida" : "Desconectado",
-  };
-  const chatStatusLabel = CHAT_STATUS_LABELS[chatStatus] ?? "—";
+  // El borde del header se tiñe de ámbar si el chat-service está reconectando.
   const isReconnectingHeader =
     chatStatus === "reconnecting" ||
     chatStatus === "offline" ||
@@ -510,16 +499,11 @@ export default function RoomPage() {
               <h1 className="truncate text-lg font-semibold text-white sm:text-xl">
                 {room?.name ?? "Cargando…"}
               </h1>
-              {/* Badge de la videollamada (permisos / conexión / reconexión). */}
+              {/* Badge único de estado (permisos / conexión / reconexión). */}
               <CallBadge
                 tone={callStatus.tone}
                 label={callStatus.label}
                 spin={callStatus.spin}
-              />
-              <ConnectionBadge
-                status={chatStatus}
-                label={chatStatusLabel}
-                className="hidden sm:inline-flex"
               />
             </div>
             <p className="mt-0.5 text-xs text-slate-400">

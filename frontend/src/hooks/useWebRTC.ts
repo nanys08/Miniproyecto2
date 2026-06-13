@@ -703,9 +703,19 @@ export function useWebRTC({
 
     // `introduction` (server → cliente): lista de peers. Para cada peer, el
     // de socketId mayor inicia la conexión; el otro espera la oferta.
-    const onIntroduction = ({ self, peers }: IntroductionEvent) => {
+    //
+    // IMPORTANTE: usamos NUESTRO propio `socket.id` como "self", NO el `self`
+    // del payload. Cuando el server avisa a los que YA estaban sobre un nuevo
+    // peer, manda `self = id del recién llegado` (no el del receptor). Si
+    // confiáramos en ese `self`, el peer existente vería `p.socketId === self`
+    // y se saltaría la conexión → la llamada solo cuajaba ~50% de las veces
+    // según el orden de los ids. Con el id local, ambos lados evalúan la MISMA
+    // comparación y exactamente uno inicia la oferta.
+    const onIntroduction = ({ peers }: IntroductionEvent) => {
+      const selfId = socket.id;
+      if (!selfId) return;
       peers.forEach((p) => {
-        if (!p.socketId || p.socketId === self) return;
+        if (!p.socketId || p.socketId === selfId) return;
         // Log de "Ana conectada" la primera vez que vemos a este peer.
         const known =
           uidBySocketRef.current.has(p.socketId) ||
@@ -726,7 +736,7 @@ export function useWebRTC({
           if (p.uid && !ctx.uid) ctx.uid = p.uid;
           return;
         }
-        if (self > p.socketId) {
+        if (selfId > p.socketId) {
           // Somos el impolite (id mayor) → iniciamos nosotros la conexión.
           ensurePeer(p.socketId, p.uid);
         }

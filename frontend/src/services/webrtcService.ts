@@ -19,6 +19,32 @@ const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL as
   | string
   | undefined;
 
+/**
+ * TURN por defecto (fallback) usado cuando NO hay VITE_TURN_* en el entorno
+ * del deploy. En producción (Vercel) el `.env` local NO se sube, así que sin
+ * esto el sitio quedaría solo con STUN → la llamada no conecta entre redes
+ * distintas (NAT). Las credenciales de un TURN viajan al navegador, por lo que
+ * son públicas por naturaleza; estas free ROTAN: si dejan de conectar, define
+ * las VITE_TURN_* en Vercel o actualízalas aquí.
+ */
+const DEFAULT_TURN: RTCIceServer = {
+  urls: "turn:free.expressturn.com:3478",
+  username: "000000002096653407",
+  credential: "0z3WX1a77UsxAe8M9KiBL4Mt3B0=",
+};
+
+/**
+ * Relays TURN públicos adicionales (Open Relay Project). Incluyen TCP/443, que
+ * atraviesa redes que bloquean UDP (datos móviles, wifi corporativa). Tener
+ * varios TURN aumenta la probabilidad de conectar; los que fallen simplemente
+ * no aportan candidatos.
+ */
+const FALLBACK_TURN: RTCIceServer[] = [
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+];
+
 // ─── Tarea 2: soporte del navegador ──────────────────────────────────────────
 
 /**
@@ -43,22 +69,40 @@ export function isWebRTCSupported(): boolean {
  */
 export function getIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [
-    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+    {
+      urls: [
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:stun2.l.google.com:19302",
+      ],
+    },
   ];
 
+  // TURN principal: el del entorno (VITE_TURN_*) si existe; si no, el default.
   if (TURN_URL && TURN_USERNAME && TURN_CREDENTIAL) {
     servers.push({
       urls: TURN_URL,
       username: TURN_USERNAME,
       credential: TURN_CREDENTIAL,
     });
+  } else {
+    servers.push(DEFAULT_TURN);
   }
+
+  // Relays públicos adicionales (incluye TCP/443 para redes que bloquean UDP).
+  servers.push(...FALLBACK_TURN);
 
   return servers;
 }
 
-/** `true` si hay un TURN configurado (útil para avisos de diagnóstico). */
-export const hasTurnConfigured = Boolean(
+/**
+ * `true` si hay algún TURN disponible. Ahora siempre lo hay (env o fallback),
+ * así que la llamada puede usar relay aunque el deploy no defina VITE_TURN_*.
+ */
+export const hasTurnConfigured = true;
+
+/** `true` si el TURN proviene de variables de entorno (no del fallback). */
+export const turnFromEnv = Boolean(
   TURN_URL && TURN_USERNAME && TURN_CREDENTIAL
 );
 
@@ -92,3 +136,36 @@ export function createPeerConnection(): RTCPeerConnection {
 export const rtcLog = (msg: string, ...args: unknown[]): void => {
   console.info(`%c[WebRTC]%c ${msg}`, "color:#22c55e;font-weight:bold", "", ...args);
 };
+
+/** Log de advertencia/diagnóstico con el mismo prefijo (en naranja). */
+export const rtcWarn = (msg: string, ...args: unknown[]): void => {
+  console.warn(`%c[WebRTC]%c ${msg}`, "color:#f59e0b;font-weight:bold", "", ...args);
+};
+
+/**
+ * Imprime la configuración ICE efectiva al iniciar la llamada. Es la PRIMERA
+ * pista para diagnosticar fallos de conexión entre redes distintas:
+ *   - Si NO hay TURN configurado, una NAT simétrica impedirá el P2P → no se
+ *     escucharán ni se verán (solo STUN no basta).
+ *   - En producción (Vercel) las VITE_TURN_* deben estar en las env del deploy,
+ *     no solo en el .env local.
+ */
+export function logIceConfig(): void {
+  const servers = getIceServers();
+  const urls = servers.flatMap((s) =>
+    Array.isArray(s.urls) ? s.urls : [s.urls]
+  );
+  rtcLog("Configuración ICE", {
+    turnDesdeEnv: turnFromEnv,
+    stun: urls.filter((u) => u.startsWith("stun:")),
+    turn: urls.filter((u) => u.startsWith("turn:")),
+    entorno: typeof window !== "undefined" ? window.location.host : "?",
+  });
+  if (!turnFromEnv) {
+    rtcWarn(
+      "TURN usando el fallback del código (no hay VITE_TURN_* en el deploy). " +
+        "Si la llamada no conecta, las credenciales free pueden haber rotado: " +
+        "define VITE_TURN_* en Vercel con un TURN propio."
+    );
+  }
+}

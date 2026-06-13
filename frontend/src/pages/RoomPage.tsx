@@ -980,13 +980,24 @@ function VideoTile({
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // `srcObject` no se puede setear como atributo JSX → lo asignamos por ref.
+  // Forzamos `play()`: algunos navegadores bloquean el autoplay con audio y,
+  // si la promesa se rechaza en silencio, NO se ve ni se escucha al remoto.
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
     if (el.srcObject !== (stream ?? null)) {
       el.srcObject = stream ?? null;
     }
-  }, [stream]);
+    if (stream) {
+      el.play().catch((err) => {
+        console.warn(
+          `%c[WebRTC]%c No se pudo reproducir el video de ${name}: ${err?.name ?? err}`,
+          "color:#f59e0b;font-weight:bold",
+          ""
+        );
+      });
+    }
+  }, [stream, name]);
 
   // Mostramos el video cuando hay stream y la cámara no está marcada apagada.
   const showVideo = !!stream && !cameraOff;

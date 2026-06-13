@@ -29,7 +29,9 @@ import { createWebrtcSocket } from "@/services/webrtcSocket";
 import {
   createPeerConnection,
   isWebRTCSupported,
+  logIceConfig,
   rtcLog,
+  rtcWarn,
 } from "@/services/webrtcService";
 
 interface PeerInfo {
@@ -318,6 +320,10 @@ export function useWebRTC({
       ctx.pc.ontrack = null;
       ctx.pc.onnegotiationneeded = null;
       ctx.pc.onconnectionstatechange = null;
+      ctx.pc.oniceconnectionstatechange = null;
+      ctx.pc.onicegatheringstatechange = null;
+      ctx.pc.onsignalingstatechange = null;
+      ctx.pc.onicecandidateerror = null;
       try {
         ctx.pc.close();
       } catch {
@@ -363,19 +369,36 @@ export function useWebRTC({
         connectionState: pc.connectionState,
       };
       peersRef.current.set(remoteSocketId, ctx);
-      rtcLog(`RTCPeerConnection creada con ${uid ?? remoteSocketId}`);
+      // Etiqueta legible del peer para los logs (uid si lo conocemos).
+      const peerLabel = () => ctx.uid ?? remoteSocketId;
+      rtcLog(
+        `RTCPeerConnection creada con ${peerLabel()} ` +
+          `(rol: ${ctx.polite ? "polite" : "impolite"})`
+      );
 
       // Adjuntar las pistas locales actuales (cámara+micro). Si ya estamos
       // compartiendo pantalla, sustituimos la pista de video por la pantalla.
       const ls = localStreamRef.current;
       if (ls) {
-        ls.getTracks().forEach((track) => pc.addTrack(track, ls));
+        const tracks = ls.getTracks();
+        tracks.forEach((track) => pc.addTrack(track, ls));
+        rtcLog(
+          `Pistas locales adjuntadas → ${peerLabel()}: ` +
+            tracks
+              .map((t) => `${t.kind}(${t.enabled ? "on" : "off"})`)
+              .join(", ") || "ninguna"
+        );
         if (screenTrackRef.current) {
           const sender = pc
             .getSenders()
             .find((s) => s.track?.kind === "video");
           sender?.replaceTrack(screenTrackRef.current).catch(() => undefined);
         }
+      } else {
+        rtcWarn(
+          `Sin stream local al crear el peer ${peerLabel()}: solo recibirás ` +
+            "media (no podrás enviar audio/video)."
+        );
       }
 
       pc.onnegotiationneeded = async () => {
@@ -400,16 +423,64 @@ export function useWebRTC({
             to: remoteSocketId,
             signal: candidate.toJSON(),
           });
-          rtcLog(`ICE enviado → ${ctx.uid ?? remoteSocketId}`);
+          // El TIPO de candidato es clave para diagnosticar NAT:
+          //   host  = misma red/local · srflx = vía STUN (IP pública)
+          //   relay = vía TURN (necesario tras NAT simétrica).
+          rtcLog(
+            `ICE enviado → ${peerLabel()} [${candidate.type ?? "?"}]`,
+            candidate.candidate
+          );
+        } else {
+          rtcLog(`ICE gathering completo → ${peerLabel()}`);
         }
       };
 
-      pc.ontrack = ({ streams }) => {
+      // Errores al obtener candidatos (p. ej. TURN rechaza credenciales: 401/
+      // 701). Aquí se ve si el TURN no autentica → no habrá candidato relay.
+      pc.onicecandidateerror = (e: RTCPeerConnectionIceErrorEvent) => {
+        rtcWarn(
+          `ICE candidate error (${peerLabel()}): code=${e.errorCode} ` +
+            `"${e.errorText}" url=${e.url}`
+        );
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        const st = pc.iceConnectionState;
+        rtcLog(`ICE connection (${peerLabel()}): ${st}`);
+        if (st === "failed") {
+          rtcWarn(
+            `ICE FALLÓ con ${peerLabel()}: no se pudo establecer ruta P2P. ` +
+              "Probable NAT sin TURN, o TURN con credenciales vencidas."
+          );
+        }
+      };
+
+      pc.onicegatheringstatechange = () =>
+        rtcLog(`ICE gathering (${peerLabel()}): ${pc.iceGatheringState}`);
+
+      pc.onsignalingstatechange = () =>
+        rtcLog(`Signaling (${peerLabel()}): ${pc.signalingState}`);
+
+      pc.ontrack = ({ track, streams }) => {
         const [stream] = streams;
-        if (!stream) return;
-        const key = ctx.uid;
-        if (!key) return; // sin uid no podemos asociarlo a un tile
-        rtcLog(`Stream remoto recibido de ${key}`);
+        // Si el uid aún no estaba sembrado, lo recuperamos del mapa socket→uid.
+        const key = ctx.uid ?? uidBySocketRef.current.get(remoteSocketId);
+        if (key && !ctx.uid) ctx.uid = key;
+        rtcLog(
+          `Track remoto recibido de ${key ?? remoteSocketId}: ` +
+            `${track.kind} (enabled=${track.enabled}, muted=${track.muted})`
+        );
+        if (!stream) {
+          rtcWarn(`Track ${track.kind} sin stream asociado de ${peerLabel()}`);
+          return;
+        }
+        if (!key) {
+          rtcWarn(
+            `Track de ${remoteSocketId} sin uid: no se puede asociar al tile ` +
+              "(se reintentará al sembrar el uid)."
+          );
+          return;
+        }
         setRemoteStreams((prev) => ({ ...prev, [key]: stream }));
       };
 
@@ -570,6 +641,14 @@ export function useWebRTC({
     if (!enabled || !roomId || !mediaReady) return;
     const id = identityRef.current;
     if (!id) return;
+
+    // Diagnóstico: imprime la config ICE/TURN al iniciar la llamada.
+    logIceConfig();
+    rtcLog("Stream local al iniciar señalización", {
+      tieneStream: !!localStreamRef.current,
+      audio: localStreamRef.current?.getAudioTracks().length ?? 0,
+      video: localStreamRef.current?.getVideoTracks().length ?? 0,
+    });
 
     const socket = createWebrtcSocket();
     socketRef.current = socket;

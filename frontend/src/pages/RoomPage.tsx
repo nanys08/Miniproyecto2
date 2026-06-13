@@ -28,17 +28,19 @@ import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { useWebRTC, type MediaErrorKind } from "@/hooks/useWebRTC";
+import { useSpeakingDetection } from "@/hooks/useSpeakingDetection";
 import { useToast } from "@/hooks/useToast";
 import { useRoomChat } from "@/hooks/useRoomChat";
 import { getRoom, type Room } from "@/services/rooms";
 import { getPublicUser, type PublicUser } from "@/services/users";
 import { friendlyError, type FriendlyError } from "@/services/apiErrors";
 import ChatPanel from "@/components/room/ChatPanel";
+import VideoGrid, { type GridTile } from "@/components/room/VideoGrid";
+import type { ParticipantConnection } from "@/components/room/ParticipantCard";
 import RoomSettingsModal from "@/components/rooms/RoomSettingsModal";
 import DeviceSettingsModal from "@/components/rooms/DeviceSettingsModal";
 import ErrorState from "@/components/ErrorState";
 import Loader from "@/components/Loader";
-import Avatar from "@/components/Avatar";
 import Button from "@/components/Button";
 
 interface ToggleControl {
@@ -431,20 +433,71 @@ export default function RoomPage() {
     mediaStatus === "denied" ||
     mediaStatus === "unsupported";
 
-  // ── Cuadrícula adaptativa (estilo Discord) ──────────────────────────────
-  // El grid se ajusta al número REAL de participantes en lugar de un 2x2 fijo
-  // con casillas vacías. Así cada cámara ocupa el máximo espacio disponible:
-  //   1 → pantalla completa · 2 → apilados en móvil / lado a lado en desktop
-  //   3-4 → cuadrícula 2x2. Cada tile rellena su celda (sin huecos).
-  const tileCount = participants.length;
-  const gridClass =
-    tileCount <= 1
-      ? "grid-cols-1 grid-rows-1"
-      : tileCount === 2
-      ? "grid-cols-1 grid-rows-2 sm:grid-cols-2 sm:grid-rows-1"
-      : tileCount === 3
-      ? "grid-cols-1 grid-rows-3 sm:grid-cols-2 sm:grid-rows-2"
-      : "grid-cols-2 grid-rows-2";
+  // ── C3: detección de actividad de voz (quién está hablando) ─────────────
+  // Mapa uid → stream de audio: el propio (siempre la cámara/mic local, aun
+  // compartiendo pantalla) + los remotos. El hook devuelve qué uids hablan.
+  const streamsByUid = useMemo(() => {
+    const m: Record<string, MediaStream | undefined> = {};
+    if (user && localStream) m[user.uid] = localStream;
+    Object.entries(remoteStreams).forEach(([uid, s]) => (m[uid] = s));
+    return m;
+  }, [user, localStream, remoteStreams]);
+  const speaking = useSpeakingDetection(streamsByUid);
+
+  // ── C3: tiles del grid a partir de participants[] ───────────────────────
+  // Construimos los descriptores que consume VideoGrid/ParticipantCard:
+  // stream a pintar, estados mic/cam, conexión y "hablando" por participante.
+  const tiles: GridTile[] = useMemo(
+    () =>
+      participants.map((p) => {
+        const remote = remoteMedia[p.uid] ?? mediaStates[p.uid];
+        const stream = p.isYou
+          ? screenSharing
+            ? screenStream
+            : localStream
+          : remoteStreams[p.uid] ?? null;
+        const cameraOff = p.isYou
+          ? !screenSharing && !camOn
+          : remote
+          ? !remote.camOn
+          : false;
+        const micOff = p.isYou ? !micOn : remote ? !remote.micOn : false;
+        const pcState = peerState[p.uid];
+        const connection: ParticipantConnection = p.isYou
+          ? "active"
+          : pcState === "failed"
+          ? "disconnected"
+          : pcState === "disconnected"
+          ? "reconnecting"
+          : "active";
+        return {
+          uid: p.uid,
+          name: p.username || "Tú",
+          avatar: p.avatar,
+          isYou: p.isYou,
+          cameraOff,
+          micOff,
+          stream: stream ?? undefined,
+          muted: p.isYou, // tile propio en silencio para evitar eco
+          mirror: p.isYou && !screenSharing,
+          speaking: !!speaking[p.uid] && !micOff,
+          connection,
+        };
+      }),
+    [
+      participants,
+      remoteMedia,
+      mediaStates,
+      remoteStreams,
+      localStream,
+      screenStream,
+      screenSharing,
+      camOn,
+      micOn,
+      peerState,
+      speaking,
+    ]
+  );
 
   // ── Render ──────────────────────────────────────────────────────────────
   // El anfitrión eliminó la sala: pantalla de cierre de sesión (Tarea 9).
@@ -684,59 +737,11 @@ export default function RoomPage() {
             />
           ) : (
           <div className="relative flex min-h-0 flex-1 flex-col">
-          <ul className={cn("grid h-full w-full flex-1 gap-1.5 sm:gap-3", gridClass)}>
-            {participants.map((p) => {
-              // Para el propio usuario usamos el estado local
-              // (el toggle inmediato no espera al broadcast). Para los
-              // demás, leemos el estado replicado por el socket
-              // (default true si aún no llegó nada para ese uid).
-              // Estado mic/cam remoto: preferimos el del signaling server
-              // (remoteMedia) y caemos al del room-service (mediaStates).
-              const remote = remoteMedia[p.uid] ?? mediaStates[p.uid];
-                // Stream a pintar: el propio (cámara o pantalla si comparte),
-                // o el stream remoto resuelto por socketId.
-                const stream = p.isYou
-                  ? screenSharing
-                    ? screenStream
-                    : localStream
-                  : remoteStreams[p.uid] ?? null;
-                // Al compartir pantalla mostramos siempre el video propio,
-                // ignorando el estado de la cámara.
-                const tileCameraOff = p.isYou
-                  ? !screenSharing && !camOn
-                  : remote
-                  ? !remote.camOn
-                  : false;
-                const tileMicOff = p.isYou
-                  ? !micOn
-                  : remote
-                  ? !remote.micOn
-                  : false;
-                return (
-                  <VideoTile
-                    key={p.uid}
-                    name={p.isYou ? "Tú" : p.username}
-                    avatar={p.avatar}
-                    isYou={p.isYou}
-                    cameraOff={tileCameraOff}
-                    micOff={tileMicOff}
-                    stream={stream ?? undefined}
-                    // El tile propio va silenciado para evitar eco/acople.
-                    muted={p.isYou}
-                    mirror={p.isYou && !screenSharing}
-                    disconnected={
-                      !p.isYou &&
-                      (peerState[p.uid] === "disconnected" ||
-                        peerState[p.uid] === "failed")
-                    }
-                  />
-              );
-            })}
-          </ul>
-          {/* Overlay de conexión / reconexión sobre la cuadrícula. */}
-          {(reconnectingCall || connectingPeers) && (
-            <CallOverlay reconnecting={reconnectingCall} />
-          )}
+            <VideoGrid tiles={tiles} />
+            {/* Overlay de conexión / reconexión sobre la cuadrícula. */}
+            {(reconnectingCall || connectingPeers) && (
+              <CallOverlay reconnecting={reconnectingCall} />
+            )}
           </div>
           )}
         </section>
@@ -949,151 +954,6 @@ export default function RoomPage() {
         returnFocusRef={moreBtnRef}
       />
     </>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tiles del grid de video
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface VideoTileProps {
-  name: string;
-  avatar?: string;
-  isYou?: boolean;
-  cameraOff?: boolean;
-  micOff?: boolean;
-  /** MediaStream de la cámara/pantalla a renderizar (local o remoto). */
-  stream?: MediaStream;
-  /** Silenciar el `<video>` (siempre true para el tile propio: evita eco). */
-  muted?: boolean;
-  /** Espejar horizontalmente (cámara propia, no al compartir pantalla). */
-  mirror?: boolean;
-  /** El peer perdió la conexión P2P → tile en gris + badge "Desconectado". */
-  disconnected?: boolean;
-}
-
-function VideoTile({
-  name,
-  avatar,
-  isYou,
-  cameraOff,
-  micOff,
-  stream,
-  muted,
-  mirror,
-  disconnected,
-}: VideoTileProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  // `srcObject` no se puede setear como atributo JSX → lo asignamos por ref.
-  // Forzamos `play()`: algunos navegadores bloquean el autoplay con audio y,
-  // si la promesa se rechaza en silencio, NO se ve ni se escucha al remoto.
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    if (el.srcObject !== (stream ?? null)) {
-      el.srcObject = stream ?? null;
-    }
-    if (stream) {
-      el.play().catch((err) => {
-        console.warn(
-          `%c[WebRTC]%c No se pudo reproducir el video de ${name}: ${err?.name ?? err}`,
-          "color:#f59e0b;font-weight:bold",
-          ""
-        );
-      });
-    }
-  }, [stream, name]);
-
-  // Mostramos el video cuando hay stream y la cámara no está marcada apagada.
-  const showVideo = !!stream && !cameraOff;
-
-  return (
-    <li
-      aria-label={`Video de ${name}${cameraOff ? " (cámara apagada)" : ""}${
-        disconnected ? " (desconectado)" : ""
-      }`}
-      className={cn(
-        "relative flex h-full w-full min-h-0 items-center justify-center overflow-hidden rounded-xl transition",
-        showVideo
-          ? "bg-slate-950 ring-1 ring-slate-600"
-          : cameraOff
-          ? "bg-slate-800 ring-1 ring-slate-700"
-          : "bg-gradient-to-br from-slate-700 to-slate-900 ring-1 ring-slate-600",
-        disconnected && "opacity-60 grayscale"
-      )}
-    >
-      {/* Badge "Desconectado" (top-right) cuando se pierde el P2P. */}
-      {disconnected && (
-        <span className="absolute right-2 top-2 z-10 inline-flex items-center rounded-md bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-          Desconectado
-        </span>
-      )}
-      {/* El elemento de video siempre está montado (para conservar la
-          conexión de la pista); se oculta cuando no hay que mostrarlo.
-          Sin <track>: es video en vivo (cámara/pantalla), no hay subtítulos. */}
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted={muted}
-        className={cn(
-          "absolute inset-0 h-full w-full bg-slate-950 object-cover",
-          // El video propio se espeja (sensación de "espejo"), salvo al
-          // compartir pantalla, donde el espejo confundiría.
-          mirror && "scale-x-[-1]",
-          showVideo ? "block" : "hidden"
-        )}
-      />
-
-      {!showVideo &&
-        (avatar ? (
-          <img
-            src={avatar}
-            alt=""
-            aria-hidden="true"
-            className={cn(
-              "h-24 w-24 rounded-full object-cover ring-4 ring-slate-900/40 sm:h-32 sm:w-32",
-              cameraOff && "opacity-50 grayscale"
-            )}
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = "none";
-            }}
-          />
-        ) : (
-          <Avatar name={name} size="xl" className="ring-4 ring-slate-900/40" />
-        ))}
-
-      {/* Etiqueta nombre (top-left) */}
-      <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 rounded-md bg-slate-950/70 px-2 py-0.5 text-xs font-medium text-slate-100 backdrop-blur">
-        {isYou && (
-          <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-        )}
-        {name}
-      </span>
-
-      {/* Estado mic (bottom-right) */}
-      <span
-        className={cn(
-          "absolute bottom-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-full",
-          micOff ? "bg-red-500/90 text-white" : "bg-slate-900/70 text-slate-200"
-        )}
-        aria-hidden="true"
-      >
-        {micOff ? (
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 2l20 20" />
-            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="9" y="2" width="6" height="13" rx="3" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />
-          </svg>
-        )}
-      </span>
-    </li>
   );
 }
 

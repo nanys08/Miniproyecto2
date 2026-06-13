@@ -41,6 +41,7 @@ interface PeerInfo {
   avatar?: string;
   micOn?: boolean;
   camOn?: boolean;
+  presenting?: boolean;
 }
 interface IntroductionEvent {
   roomId: string;
@@ -150,7 +151,10 @@ export interface UseWebRTCResult {
   /** Stream remoto por uid del participante. */
   remoteStreams: Record<string, MediaStream>;
   /** Estado mic/cam remoto por uid (sincronizado vía `media-state`). */
-  remoteMedia: Record<string, { micOn: boolean; camOn: boolean }>;
+  remoteMedia: Record<
+    string,
+    { micOn: boolean; camOn: boolean; presenting?: boolean }
+  >;
   micOn: boolean;
   camOn: boolean;
   screenSharing: boolean;
@@ -245,7 +249,7 @@ export function useWebRTC({
     Record<string, MediaStream>
   >({});
   const [remoteMedia, setRemoteMedia] = useState<
-    Record<string, { micOn: boolean; camOn: boolean }>
+    Record<string, { micOn: boolean; camOn: boolean; presenting?: boolean }>
   >({});
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
@@ -348,10 +352,13 @@ export function useWebRTC({
   identityRef.current = identity;
 
   // Emite el estado mic/cam al signaling server (Tarea 3), si hay socket.
-  const emitMediaState = useCallback((state: { micOn: boolean; camOn: boolean }) => {
-    const s = socketRef.current;
-    if (s && s.connected) s.emit("media-state", state);
-  }, []);
+  const emitMediaState = useCallback(
+    (state: { micOn: boolean; camOn: boolean; presenting?: boolean }) => {
+      const s = socketRef.current;
+      if (s && s.connected) s.emit("media-state", state);
+    },
+    []
+  );
 
   // ── Quitar el stream remoto asociado a un uid ───────────────────────────
   const dropRemoteStream = useCallback((uid?: string) => {
@@ -812,7 +819,11 @@ export function useWebRTC({
         if (p.uid && (typeof p.micOn === "boolean" || typeof p.camOn === "boolean")) {
           setRemoteMedia((prev) => ({
             ...prev,
-            [p.uid!]: { micOn: p.micOn ?? true, camOn: p.camOn ?? true },
+            [p.uid!]: {
+              micOn: p.micOn ?? true,
+              camOn: p.camOn ?? true,
+              presenting: p.presenting ?? false,
+            },
           }));
         }
         const ctx = peersRef.current.get(p.socketId);
@@ -869,14 +880,19 @@ export function useWebRTC({
       uid,
       micOn: m,
       camOn: c,
+      presenting: p,
     }: {
       socketId: string;
       uid?: string;
       micOn: boolean;
       camOn: boolean;
+      presenting?: boolean;
     }) => {
       if (!uid) return;
-      setRemoteMedia((prev) => ({ ...prev, [uid]: { micOn: m, camOn: c } }));
+      setRemoteMedia((prev) => ({
+        ...prev,
+        [uid]: { micOn: m, camOn: c, presenting: p ?? prev[uid]?.presenting ?? false },
+      }));
     };
 
     // Eventos AV DISCRETOS (camera_on/off, mic_on/off): actualizan un solo
@@ -997,7 +1013,9 @@ export function useWebRTC({
     if (camTrack) camTrack.enabled = camOn;
     setScreenStream(null);
     setScreenSharing(false);
-  }, [camOn]);
+    // Avisar a la sala que dejamos de presentar (spotlight → grid).
+    emitMediaState({ ...mediaStateRef.current, presenting: false });
+  }, [camOn, emitMediaState]);
 
   const startScreenShare = useCallback(async () => {
     let display: MediaStream;
@@ -1027,7 +1045,9 @@ export function useWebRTC({
     screenTrack.onended = () => stopScreenShare();
     setScreenStream(display);
     setScreenSharing(true);
-  }, [stopScreenShare]);
+    // Avisar a la sala que empezamos a presentar (grid → spotlight).
+    emitMediaState({ ...mediaStateRef.current, presenting: true });
+  }, [stopScreenShare, emitMediaState]);
 
   const toggleScreenShare = useCallback(async () => {
     if (screenSharing) {

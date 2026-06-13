@@ -61,6 +61,8 @@ export interface PeerInfo {
   /** Estado de medios publicado por el peer (default: encendidos). */
   micOn: boolean;
   camOn: boolean;
+  /** `true` si el peer está presentando (compartiendo pantalla). */
+  presenting?: boolean;
 }
 
 const rooms: Record<string, Map<string, PeerInfo>> = {};
@@ -96,7 +98,7 @@ const signalKind = (signal: unknown): string => {
  */
 const applyMediaChange = (
   socket: Socket,
-  change: { micOn?: boolean; camOn?: boolean }
+  change: { micOn?: boolean; camOn?: boolean; presenting?: boolean }
 ): void => {
   const roomId = socket.data.roomId as string | undefined;
   const peer = socket.data.peer as PeerInfo | undefined;
@@ -105,6 +107,7 @@ const applyMediaChange = (
   const before = { micOn: peer.micOn, camOn: peer.camOn };
   if (typeof change.micOn === "boolean") peer.micOn = change.micOn;
   if (typeof change.camOn === "boolean") peer.camOn = change.camOn;
+  if (typeof change.presenting === "boolean") peer.presenting = change.presenting;
   rooms[roomId].set(socket.id, peer);
 
   // Estado agregado (compat con la señalización WebRTC / nuevos joiners).
@@ -113,6 +116,7 @@ const applyMediaChange = (
     uid: peer.uid,
     micOn: peer.micOn,
     camOn: peer.camOn,
+    presenting: peer.presenting ?? false,
   });
 
   // Eventos discretos + logs, solo para el campo que cambió.
@@ -187,6 +191,7 @@ export const initSignaling = (io: Server): void => {
         avatar?: string;
         micOn?: boolean;
         camOn?: boolean;
+        presenting?: boolean;
       }) => {
         const roomId = payload?.roomId;
         if (!roomId || typeof roomId !== "string") {
@@ -209,6 +214,10 @@ export const initSignaling = (io: Server): void => {
             typeof payload.micOn === "boolean" ? payload.micOn : prev?.micOn ?? true,
           camOn:
             typeof payload.camOn === "boolean" ? payload.camOn : prev?.camOn ?? true,
+          presenting:
+            typeof payload.presenting === "boolean"
+              ? payload.presenting
+              : prev?.presenting ?? false,
         };
 
         // Si el socket ya estaba en otra sala (re-introduction), lo sacamos.

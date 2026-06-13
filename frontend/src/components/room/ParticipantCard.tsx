@@ -36,8 +36,16 @@ export interface ParticipantCardProps {
   speaking?: boolean;
   /** Estado de la conexión P2P con este participante. */
   connection?: ParticipantConnection;
-  /** Tile pequeño (grids de 5+) → abreviar el badge a "Hab.". */
+  /** Tile pequeño (grids de 5+ / tira de miniaturas) → badge abreviado. */
   compact?: boolean;
+  /** Está presentando (compartiendo pantalla) → badge "Presentando". */
+  presenting?: boolean;
+  /** Este tile está fijado/destacado en el escenario (spotlight). */
+  pinned?: boolean;
+  /** Usar object-contain (pantallas compartidas: no recortar el contenido). */
+  objectContain?: boolean;
+  /** Fijar/Quitar del escenario. Si se pasa, aparece el botón de fijar. */
+  onSelect?: () => void;
   /** Clases extra para el `<li>` (p. ej. col-span en layouts especiales). */
   className?: string;
 }
@@ -54,6 +62,10 @@ export default function ParticipantCard({
   speaking,
   connection = "active",
   compact,
+  presenting,
+  pinned,
+  objectContain,
+  onSelect,
   className,
 }: ParticipantCardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -88,17 +100,62 @@ export default function ParticipantCard({
       role="region"
       aria-label={`Video de ${ariaLabel}`}
       className={cn(
-        "group relative flex h-full w-full min-h-0 items-center justify-center overflow-hidden rounded-xl ring-1 transition",
+        "group relative flex h-full w-full min-h-0 items-center justify-center overflow-hidden rounded-xl ring-1 transition-all duration-300 ease-out",
         // Fondo: azul muy oscuro sin video (≠ negro de cámara apagada).
         showVideo ? "bg-slate-950" : "bg-[#1a1a2e]",
         // Borde verde + pulso + leve zoom cuando habla (Tarea 6).
         speaking
           ? "ring-2 ring-green-400 speaking-pulse z-10 scale-[1.02]"
+          : pinned
+          ? "ring-2 ring-blue-400/80"
           : "ring-slate-700/80",
         disconnected && "opacity-60 grayscale",
         className
       )}
     >
+      {/* Botón de fijar/quitar del escenario (aparece al pasar el cursor o
+          enfocar). Permite a cada usuario destacar a quien quiera ver grande. */}
+      {onSelect && (
+        <button
+          type="button"
+          onClick={onSelect}
+          aria-label={pinned ? `Quitar a ${name} del escenario` : `Fijar a ${name} en el escenario`}
+          aria-pressed={pinned}
+          className={cn(
+            "absolute left-1.5 top-1.5 z-30 inline-flex h-7 w-7 items-center justify-center rounded-md text-white transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
+            pinned
+              ? "bg-blue-600/90 opacity-100"
+              : "bg-slate-900/70 opacity-0 group-hover:opacity-100"
+          )}
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {pinned ? (
+              <>
+                <path d="m3 3 18 18" />
+                <path d="M15 5l4 4M9 9l-4 8 8-4" />
+              </>
+            ) : (
+              <>
+                <path d="M9 4v6l-2 4h10l-2-4V4" />
+                <path d="M12 14v6" />
+              </>
+            )}
+          </svg>
+        </button>
+      )}
+      {/* Badge "Presentando" (sup. derecha, encima del badge de estado). */}
+      {presenting && !disconnected && (
+        <span
+          aria-live="polite"
+          className={cn(
+            "absolute z-20 inline-flex items-center gap-1 rounded-md bg-blue-600/90 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white",
+            speaking || reconnecting ? "right-1.5 top-8" : "right-1.5 top-1.5"
+          )}
+        >
+          {compact ? "Pres." : "🖥 Presentando"}
+        </span>
+      )}
+
       {/* ── Capa 3: badge contextual (sup. derecha) ── */}
       {(speaking || reconnecting || disconnected) && (
         <span
@@ -132,7 +189,8 @@ export default function ParticipantCard({
         playsInline
         muted={muted}
         className={cn(
-          "absolute inset-0 h-full w-full bg-slate-950 object-cover",
+          "absolute inset-0 h-full w-full bg-slate-950",
+          objectContain ? "object-contain" : "object-cover",
           mirror && "scale-x-[-1]",
           showVideo ? "block" : "hidden"
         )}

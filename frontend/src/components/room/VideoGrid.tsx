@@ -1,17 +1,19 @@
 /**
  * @file VideoGrid — Cuadrícula responsive de participantes (C3, Tareas 1/3/4/7).
  *
- * Distribuye los `ParticipantCard` según cuántos haya, adaptándose a desktop /
- * tablet / móvil (regla: en móvil nunca más de 2 columnas). Renderiza la lista
- * dinámicamente (entradas/salidas reordenan el grid sin recargar) y muestra el
- * contador. A partir de 10 participantes pagina en bloques de 9 (3×3) y sube
- * automáticamente a la primera página a quien está hablando.
+ * Dos modos:
+ *   - GRID equitativo: cuando nadie presenta, todos los tiles del mismo tamaño,
+ *     adaptándose a desktop/tablet/móvil (en móvil nunca más de 2 columnas) y
+ *     paginando a partir de 10 participantes (bloques de 9).
+ *   - ESCENARIO (spotlight): cuando alguien presenta (comparte pantalla) o un
+ *     usuario fija a alguien, ese tile se muestra GRANDE y el resto pasa a una
+ *     tira de miniaturas. Las transiciones entre estados son suaves.
  *
- * El estado vacío ("Aún no hay participantes conectados") y el layout especial
- * de 3 (dos arriba + uno a lo ancho) se manejan aquí.
+ * Renderiza dinámicamente desde `tiles` (entradas/salidas reordenan sin
+ * recargar), muestra el contador y permite fijar/quitar del escenario.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import ParticipantCard, {
   type ParticipantCardProps,
 } from "@/components/room/ParticipantCard";
@@ -21,6 +23,16 @@ const PAGE_SIZE = 9;
 export interface GridTile extends ParticipantCardProps {
   /** Clave estable (uid del participante). */
   uid: string;
+}
+
+interface VideoGridProps {
+  tiles: GridTile[];
+  /** uid destacado en el escenario (presentador o fijado). null → grid. */
+  spotlightUid?: string | null;
+  /** uid fijado manualmente (para resaltar el botón de fijar). */
+  pinnedUid?: string | null;
+  /** Fijar/quitar a un participante del escenario. */
+  onPin?: (uid: string) => void;
 }
 
 /** `true` en viewports estrechos (< 640px) → como máximo 2 columnas. */
@@ -47,31 +59,30 @@ function columnsFor(n: number, narrow: boolean): number {
   return 3; // 5-9 (y páginas de 10+) → 3 columnas
 }
 
-export default function VideoGrid({ tiles }: { tiles: GridTile[] }) {
+export default function VideoGrid({
+  tiles,
+  spotlightUid,
+  pinnedUid,
+  onPin,
+}: VideoGridProps) {
   const narrow = useNarrow();
   const [page, setPage] = useState(0);
   const count = tiles.length;
+
+  // Paginación (10+). Calculamos y clampamos ANTES de cualquier return para
+  // no romper las reglas de hooks.
   const paginated = count > PAGE_SIZE;
-
-  // En modo paginado, quien habla sube al frente (primera página visible).
-  const ordered = useMemo(() => {
-    if (!paginated) return tiles;
-    return [...tiles].sort(
-      (a, b) => Number(Boolean(b.speaking)) - Number(Boolean(a.speaking))
-    );
-  }, [tiles, paginated]);
-
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   useEffect(() => {
     if (page > totalPages - 1) setPage(Math.max(0, totalPages - 1));
   }, [page, totalPages]);
 
-  const visible = paginated
-    ? ordered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
-    : ordered;
+  const spotlight = spotlightUid
+    ? tiles.find((t) => t.uid === spotlightUid) ?? null
+    : null;
 
-  // Estado vacío (US-09).
+  // ── Estado vacío (US-09) ──────────────────────────────────────────────
   if (count === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
@@ -83,12 +94,50 @@ export default function VideoGrid({ tiles }: { tiles: GridTile[] }) {
     );
   }
 
+  const pinProps = (t: GridTile) => ({
+    pinned: t.uid === pinnedUid,
+    onSelect: onPin ? () => onPin(t.uid) : undefined,
+  });
+
+  // ── Modo ESCENARIO (alguien presenta o está fijado) ───────────────────
+  if (spotlight) {
+    const others = tiles.filter((t) => t.uid !== spotlight.uid);
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <Counter count={count} label={spotlight.presenting ? "Presentación" : "Escenario"} />
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          {/* Escenario: el tile destacado, grande. */}
+          <ul className="min-h-0 flex-1">
+            <ParticipantCard
+              {...spotlight}
+              compact={false}
+              objectContain={!!spotlight.presenting}
+              {...pinProps(spotlight)}
+            />
+          </ul>
+          {/* Tira de miniaturas con el resto (scroll horizontal). */}
+          {others.length > 0 && (
+            <ul className="grid h-20 shrink-0 grid-flow-col gap-2 overflow-x-auto pb-1 auto-cols-[44%] sm:h-24 sm:auto-cols-[160px]">
+              {others.map((t) => (
+                <ParticipantCard key={t.uid} {...t} compact {...pinProps(t)} />
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Modo GRID equitativo ──────────────────────────────────────────────
+  const visible = paginated
+    ? tiles.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
+    : tiles;
+
   const shown = visible.length;
   const cols = columnsFor(shown, narrow);
   const rows = Math.max(1, Math.ceil(shown / cols));
   const compact = shown >= 5;
 
-  // Etiqueta del layout para el contador (estilo mockups).
   const layoutLabel = paginated
     ? `Mostrando ${shown} de ${count}`
     : count === 4
@@ -99,20 +148,9 @@ export default function VideoGrid({ tiles }: { tiles: GridTile[] }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      {/* Contador (Tarea 4) — se actualiza automáticamente. */}
-      <div className="flex shrink-0 items-center justify-between px-0.5">
-        <p
-          aria-live="polite"
-          className="text-xs font-semibold uppercase tracking-wide text-slate-400"
-        >
-          {count} participante{count !== 1 ? "s" : ""}
-          <span className="mx-1.5 text-slate-600">—</span>
-          <span className="text-slate-500">{layoutLabel}</span>
-        </p>
-      </div>
-
+      <Counter count={count} label={layoutLabel} />
       <ul
-        className="grid h-full min-h-0 w-full flex-1 gap-1.5 sm:gap-3"
+        className="grid h-full min-h-0 w-full flex-1 gap-1.5 transition-all duration-300 sm:gap-3"
         style={{
           gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
@@ -123,7 +161,7 @@ export default function VideoGrid({ tiles }: { tiles: GridTile[] }) {
             key={t.uid}
             {...t}
             compact={compact}
-            // Layout de 3 en desktop: el tercero ocupa el ancho completo.
+            {...pinProps(t)}
             className={
               !narrow && shown === 3 && idx === 2 ? "col-span-2" : undefined
             }
@@ -131,7 +169,6 @@ export default function VideoGrid({ tiles }: { tiles: GridTile[] }) {
         ))}
       </ul>
 
-      {/* Paginación (10+ participantes). */}
       {paginated && (
         <nav
           aria-label="Páginas de participantes"
@@ -160,6 +197,22 @@ export default function VideoGrid({ tiles }: { tiles: GridTile[] }) {
           </button>
         </nav>
       )}
+    </div>
+  );
+}
+
+/** Contador de participantes (Tarea 4) — se actualiza automáticamente. */
+function Counter({ count, label }: { count: number; label: string }) {
+  return (
+    <div className="flex shrink-0 items-center justify-between px-0.5">
+      <p
+        aria-live="polite"
+        className="text-xs font-semibold uppercase tracking-wide text-slate-400"
+      >
+        {count} participante{count !== 1 ? "s" : ""}
+        <span className="mx-1.5 text-slate-600">—</span>
+        <span className="text-slate-500">{label}</span>
+      </p>
     </div>
   );
 }

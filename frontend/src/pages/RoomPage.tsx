@@ -506,6 +506,7 @@ export default function RoomPage() {
           muted: p.isYou, // tile propio en silencio para evitar eco
           mirror: p.isYou && !screenSharing,
           speaking: !!speaking[p.uid] && !micOff,
+          presenting: p.isYou ? screenSharing : !!remote?.presenting,
           connection,
         };
       }),
@@ -523,6 +524,26 @@ export default function RoomPage() {
       speaking,
     ]
   );
+
+  // ── Escenario (spotlight) ───────────────────────────────────────────────
+  // Alguien "presenta" cuando comparte pantalla; ese tile se ve grande y el
+  // resto en miniaturas. Además, cada usuario puede FIJAR manualmente a quien
+  // quiera ver grande (preferencia local). Si nadie presenta ni hay fijado,
+  // el grid se ve equitativo.
+  const [pinnedUid, setPinnedUid] = useState<string | null>(null);
+  const handlePin = useCallback(
+    (uid: string) => setPinnedUid((cur) => (cur === uid ? null : uid)),
+    []
+  );
+  const presentingUid = useMemo(() => {
+    const presenter = tiles.find((t) => t.presenting);
+    return presenter?.uid ?? null;
+  }, [tiles]);
+  // El pin manual tiene prioridad; si el fijado ya no está, cae al presentador.
+  const spotlightUid =
+    pinnedUid && tiles.some((t) => t.uid === pinnedUid)
+      ? pinnedUid
+      : presentingUid;
 
   // ── Render ──────────────────────────────────────────────────────────────
   // El anfitrión eliminó la sala: pantalla de cierre de sesión (Tarea 9).
@@ -771,7 +792,12 @@ export default function RoomPage() {
             />
           ) : (
           <div className="relative flex min-h-0 flex-1 flex-col">
-            <VideoGrid tiles={tiles} />
+            <VideoGrid
+              tiles={tiles}
+              spotlightUid={spotlightUid}
+              pinnedUid={pinnedUid}
+              onPin={handlePin}
+            />
             {/* Overlay de conexión / reconexión sobre la cuadrícula. */}
             {(reconnectingCall || connectingPeers) && (
               <CallOverlay reconnecting={reconnectingCall} />

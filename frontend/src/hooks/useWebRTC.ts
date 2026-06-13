@@ -87,6 +87,40 @@ export type MediaStatus =
   | "audio-only"
   | "denied";
 
+/**
+ * Naturaleza del fallo de medios (Tarea 5). Permite mostrar el mensaje y la
+ * pantalla correctos: permisos denegados vs. dispositivo ocupado por otra app
+ * (Zoom/Teams) vs. sin dispositivos vs. navegador sin soporte.
+ */
+export type MediaErrorKind =
+  | "permission"
+  | "busy"
+  | "notfound"
+  | "unsupported"
+  | null;
+
+/** Clasifica el error de getUserMedia por su `name` (DOMException). */
+const classifyMediaError = (err: unknown): Exclude<MediaErrorKind, null> => {
+  const name = (err as { name?: string })?.name;
+  switch (name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+    case "SecurityError":
+      return "permission";
+    case "NotReadableError":
+    case "TrackStartError":
+    case "AbortError":
+      // El dispositivo existe pero otra aplicación lo tiene tomado.
+      return "busy";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+    case "OverconstrainedError":
+      return "notfound";
+    default:
+      return "permission";
+  }
+};
+
 /** Estado del socket de señalización (para el badge del header). */
 export type SignalingStatus = "connecting" | "connected" | "reconnecting";
 
@@ -125,6 +159,8 @@ export interface UseWebRTCResult {
   toggleScreenShare: () => Promise<void>;
   /** Mensaje legible si no se pudo obtener cámara/micrófono. */
   mediaError: string | null;
+  /** Tipo de fallo de medios (permisos / ocupado / sin dispositivo). */
+  mediaErrorKind: MediaErrorKind;
   /** `false` si el navegador no soporta WebRTC (Tarea 2). */
   supported: boolean;
   /** Estado del acceso a cámara/micrófono (pantallas de permisos). */
@@ -220,6 +256,9 @@ export function useWebRTC({
   // Estados para las pantallas de permisos / conexión / reconexión.
   const [mediaStatus, setMediaStatus] = useState<MediaStatus>(
     supported ? "idle" : "unsupported"
+  );
+  const [mediaErrorKind, setMediaErrorKind] = useState<MediaErrorKind>(
+    supported ? null : "unsupported"
   );
   const [signalingStatus, setSignalingStatus] =
     useState<SignalingStatus>("connecting");
@@ -536,6 +575,7 @@ export function useWebRTC({
     (async () => {
       // Mientras el navegador muestra el diálogo de permisos.
       setMediaError(null);
+      setMediaErrorKind(null);
       setMediaStatus("requesting");
       let stream: MediaStream | null = null;
       try {
@@ -554,7 +594,10 @@ export function useWebRTC({
           });
         }
         if (!cancelled) setMediaStatus("granted");
-      } catch {
+      } catch (err) {
+        // Falló audio+video. Clasificamos el motivo (Tarea 5) e intentamos
+        // continuar solo con audio antes de declarar el fallo total.
+        const kind = classifyMediaError(err);
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
@@ -565,17 +608,34 @@ export function useWebRTC({
             setMediaStatus("audio-only");
             mediaStateRef.current.camOn = false;
             onMediaChangeRef.current?.({ micOn: true, camOn: false });
-            mediaErrorRef.current = "camara_denegada";
+            mediaErrorRef.current =
+              kind === "busy" ? "camara_ocupada" : "camara_denegada";
             setMediaError(
-              "No se pudo acceder a la cámara. Continúas solo con audio."
+              kind === "busy"
+                ? "Tu cámara está siendo usada por otra aplicación. Continúas solo con audio."
+                : kind === "notfound"
+                ? "No se encontró ninguna cámara. Continúas solo con audio."
+                : "No se pudo acceder a la cámara. Continúas solo con audio."
             );
           }
-        } catch {
+        } catch (err2) {
           if (!cancelled) {
+            // Ni cámara ni micrófono: pantalla de error según el motivo.
+            const kind2 = classifyMediaError(err2);
             setMediaStatus("denied");
-            mediaErrorRef.current = "camara_y_microfono_denegados";
+            setMediaErrorKind(kind2);
+            mediaErrorRef.current =
+              kind2 === "busy"
+                ? "dispositivos_ocupados"
+                : kind2 === "notfound"
+                ? "dispositivos_no_encontrados"
+                : "camara_y_microfono_denegados";
             setMediaError(
-              "No se pudo acceder a la cámara ni al micrófono. Revisa los permisos del navegador."
+              kind2 === "busy"
+                ? "No se pudo acceder a los dispositivos multimedia. Tu cámara o micrófono está siendo usado por otra aplicación. Cierra Zoom, Teams u otras videollamadas activas."
+                : kind2 === "notfound"
+                ? "No se encontró cámara ni micrófono en este dispositivo."
+                : "No se pudo acceder a la cámara ni al micrófono. Revisa los permisos del navegador."
             );
           }
         }
@@ -1071,6 +1131,7 @@ export function useWebRTC({
     toggleCam,
     toggleScreenShare,
     mediaError,
+    mediaErrorKind,
     supported,
     mediaStatus,
     signalingStatus,

@@ -27,7 +27,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
-import { useWebRTC } from "@/hooks/useWebRTC";
+import { useWebRTC, type MediaErrorKind } from "@/hooks/useWebRTC";
 import { useToast } from "@/hooks/useToast";
 import { useRoomChat } from "@/hooks/useRoomChat";
 import { getRoom, type Room } from "@/services/rooms";
@@ -244,6 +244,7 @@ export default function RoomPage() {
     toggleCam,
     toggleScreenShare,
     mediaError,
+    mediaErrorKind,
     supported: webrtcSupported,
     mediaStatus,
     signalingStatus,
@@ -403,9 +404,13 @@ export default function RoomPage() {
     !webrtcSupported
       ? { tone: "red", label: "Sin soporte", spin: false }
       : mediaStatus === "requesting"
-      ? { tone: "amber", label: "Esperando permisos", spin: false }
+      ? { tone: "amber", label: "Iniciando dispositivos", spin: true }
       : mediaStatus === "denied"
-      ? { tone: "red", label: "Sin permisos", spin: false }
+      ? {
+          tone: "red",
+          label: mediaErrorKind === "busy" ? "Error AV" : "Sin permisos",
+          spin: false,
+        }
       : reconnectingCall
       ? { tone: "amber", label: "Reconectando…", spin: true }
       : connectingPeers
@@ -672,7 +677,8 @@ export default function RoomPage() {
             <PermissionRequestPanel roomName={room?.name} />
           ) : mediaStatus === "denied" || mediaStatus === "unsupported" ? (
             <PermissionDeniedPanel
-              unsupported={mediaStatus === "unsupported"}
+              kind={mediaStatus === "unsupported" ? "unsupported" : mediaErrorKind ?? "permission"}
+              message={mediaError}
               onRetry={retryMedia}
               onLeave={handleLeave}
             />
@@ -1193,14 +1199,47 @@ function PermissionRequestPanel({ roomName }: { roomName?: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PermissionDeniedPanel({
-  unsupported,
+  kind,
+  message,
   onRetry,
   onLeave,
 }: {
-  unsupported: boolean;
+  kind: Exclude<MediaErrorKind, null>;
+  message: string | null;
   onRetry: () => void;
   onLeave: () => void;
 }) {
+  const unsupported = kind === "unsupported";
+  // Título + ícono + texto por tipo de fallo (Tarea 5).
+  const { icon, title, fallback } =
+    kind === "unsupported"
+      ? {
+          icon: "🚫",
+          title: "Navegador no compatible",
+          fallback:
+            "Tu navegador no soporta WebRTC. Usa un navegador moderno (Chrome, Edge o Firefox) para participar.",
+        }
+      : kind === "busy"
+      ? {
+          icon: "⚠️",
+          title: "Dispositivos multimedia ocupados",
+          fallback:
+            "Tu cámara o micrófono está siendo usado por otra aplicación. Cierra Zoom, Teams u otras videollamadas activas.",
+        }
+      : kind === "notfound"
+      ? {
+          icon: "🎥",
+          title: "Sin cámara ni micrófono",
+          fallback:
+            "No se encontró ninguna cámara ni micrófono conectados a este dispositivo.",
+        }
+      : {
+          icon: "🚫",
+          title: "Permisos denegados",
+          fallback:
+            "Para participar en la sala necesitas habilitar el acceso a la cámara y micrófono desde la configuración de tu navegador.",
+        };
+
   return (
     <div
       role="alert"
@@ -1210,17 +1249,14 @@ function PermissionDeniedPanel({
         aria-hidden="true"
         className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/15 text-3xl"
       >
-        🚫
+        {icon}
       </span>
-      <h3 className="text-lg font-bold text-red-400 sm:text-xl">
-        {unsupported ? "Navegador no compatible" : "Permisos denegados"}
-      </h3>
-      <p className="max-w-sm text-sm text-slate-400">
-        {unsupported
-          ? "Tu navegador no soporta WebRTC. Usa un navegador moderno (Chrome, Edge o Firefox) para participar."
-          : "Para participar en la sala necesitas habilitar el acceso a la cámara y micrófono desde la configuración de tu navegador."}
-      </p>
-      {!unsupported && (
+      <h3 className="text-lg font-bold text-red-400 sm:text-xl">{title}</h3>
+      <p className="max-w-sm text-sm text-slate-400">{message || fallback}</p>
+
+      {/* Ayuda de permisos del navegador (solo cuando el problema es de
+          permisos; no aplica si el dispositivo está ocupado o no hay soporte). */}
+      {kind === "permission" && (
         <div className="max-w-sm rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-left text-xs text-slate-300">
           <p className="mb-1">
             <span className="font-semibold text-slate-100">Chrome:</span> 🔒 en
@@ -1243,7 +1279,7 @@ function PermissionDeniedPanel({
             onClick={onRetry}
             className="inline-flex items-center justify-center rounded-md bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
           >
-            Reintentar tras habilitar
+            {kind === "busy" ? "Reintentar" : "Reintentar tras habilitar"}
           </button>
         )}
         <button

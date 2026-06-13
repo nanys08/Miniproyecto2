@@ -253,6 +253,8 @@ export default function RoomPage() {
     peerConnecting,
     peerState,
     retryMedia,
+    startMedia,
+    failedAttempts,
     audioDevices,
     videoDevices,
     selectedMicId,
@@ -405,6 +407,8 @@ export default function RoomPage() {
   const callStatus: { tone: "green" | "amber" | "red"; label: string; spin: boolean } =
     !webrtcSupported
       ? { tone: "red", label: "Sin soporte", spin: false }
+      : mediaStatus === "idle"
+      ? { tone: "amber", label: "Sin iniciar", spin: false }
       : mediaStatus === "requesting"
       ? { tone: "amber", label: "Iniciando dispositivos", spin: true }
       : mediaStatus === "denied"
@@ -429,9 +433,30 @@ export default function RoomPage() {
       : { tone: "amber", label: "Conectando…", spin: true };
   // Sin cámara/micrófono no se pueden usar los controles de media.
   const mediaBlocked =
+    mediaStatus === "idle" ||
     mediaStatus === "requesting" ||
     mediaStatus === "denied" ||
     mediaStatus === "unsupported";
+
+  // C4 — "Continuar sin dispositivos": permite ver el grid en modo recepción
+  // tras un error, sin cámara/micrófono propios.
+  const [proceedAnyway, setProceedAnyway] = useState(false);
+  useEffect(() => {
+    // Si se vuelve a intentar (sale de "denied"), re-evaluamos el error.
+    if (mediaStatus !== "denied") setProceedAnyway(false);
+  }, [mediaStatus]);
+
+  // C4 — Estado éxito: toast "✓ Audio y video conectados" al obtener media.
+  const mediaGrantedToastRef = useRef(false);
+  useEffect(() => {
+    if (mediaStatus === "granted" && !mediaGrantedToastRef.current) {
+      mediaGrantedToastRef.current = true;
+      show("success", "✓ Audio y video conectados");
+    }
+    if (mediaStatus === "idle" || mediaStatus === "requesting") {
+      mediaGrantedToastRef.current = false; // permite anunciarlo de nuevo
+    }
+  }, [mediaStatus, show]);
 
   // ── C3: detección de actividad de voz (quién está hablando) ─────────────
   // Mapa uid → stream de audio: el propio (siempre la cámara/mic local, aun
@@ -726,13 +751,22 @@ export default function RoomPage() {
           <h2 id="region-stage" className="sr-only">
             Área de video y compartición de pantalla
           </h2>
-          {mediaStatus === "requesting" ? (
-            <PermissionRequestPanel roomName={room?.name} />
-          ) : mediaStatus === "denied" || mediaStatus === "unsupported" ? (
+          {mediaStatus === "idle" ? (
+            <MediaEmptyPanel onStart={startMedia} />
+          ) : mediaStatus === "requesting" ? (
+            <MediaLoadingPanel />
+          ) : (mediaStatus === "denied" || mediaStatus === "unsupported") &&
+            !proceedAnyway ? (
             <PermissionDeniedPanel
               kind={mediaStatus === "unsupported" ? "unsupported" : mediaErrorKind ?? "permission"}
               message={mediaError}
+              attempts={failedAttempts}
               onRetry={retryMedia}
+              onContinue={
+                mediaStatus === "unsupported"
+                  ? undefined
+                  : () => setProceedAnyway(true)
+              }
               onLeave={handleLeave}
             />
           ) : (
@@ -1030,26 +1064,81 @@ function CallOverlay({ reconnecting }: { reconnecting: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pantalla: solicitar permisos de cámara/micrófono
+// C4 — Estado VACÍO: el usuario aún no activó sus dispositivos.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PermissionRequestPanel({ roomName }: { roomName?: string }) {
+function MediaEmptyPanel({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-      <div aria-hidden="true" className="text-4xl">🎥 🎤</div>
-      <h3 className="text-lg font-bold text-white sm:text-xl">
-        Necesitamos acceso a tu cámara y micrófono
-      </h3>
-      <p className="max-w-sm text-sm text-slate-400">
-        {roomName ? `${roomName} necesita` : "La sala necesita"} estos permisos
-        para que puedas participar. Haz clic en{" "}
-        <span className="font-semibold text-slate-200">“Permitir”</span> cuando
-        el navegador lo solicite.
+    <div className="flex flex-1 flex-col items-center justify-center rounded-xl bg-[#14141e] p-6">
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex flex-col items-center gap-4 text-center"
+      >
+        {/* Íconos de cámara y micrófono inactivos (decorativos). */}
+        <div aria-hidden="true" className="flex items-center gap-4 text-slate-500">
+          <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34m1 3.66 5 3V7l-5 3M2 2l20 20" />
+          </svg>
+          <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 2l20 20" />
+            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6" />
+            <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-bold text-white sm:text-xl">
+          Activa tu cámara y micrófono para comenzar
+        </h3>
+        <p className="max-w-sm text-sm text-white/70">
+          Cuando los actives, el navegador te pedirá permiso para acceder a tus
+          dispositivos.
+        </p>
+        <button
+          type="button"
+          onClick={onStart}
+          aria-label="Activar cámara y micrófono"
+          className="mt-1 inline-flex items-center gap-2 rounded-md bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m23 7-7 5 7 5V7z" />
+            <rect width="15" height="14" x="1" y="5" rx="2" ry="2" />
+          </svg>
+          Activar cámara y micrófono
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C4 — Estado CARGANDO: getUserMedia en curso (inicializando streams).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MediaLoadingPanel() {
+  return (
+    <div
+      aria-busy="true"
+      aria-label="Conectando audio y video"
+      className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center"
+    >
+      <span
+        aria-hidden="true"
+        className="inline-block h-10 w-10 rounded-full border-4 border-blue-400 border-r-transparent animate-spin"
+      />
+      <p aria-live="polite" className="text-base font-semibold text-white">
+        Conectando audio y video…
       </p>
-      <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-300">
-        <span className="inline-block h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin" />
-        Esperando permisos…
-      </span>
+      {/* Indicadores independientes de audio y video (pueden tardar distinto). */}
+      <div className="flex flex-col items-center gap-1.5 text-sm text-slate-400">
+        <span className="inline-flex items-center gap-2">
+          <span aria-hidden="true" className="inline-block h-3.5 w-3.5 rounded-full border-2 border-slate-500 border-r-transparent animate-spin" />
+          🎤 Conectando audio…
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span aria-hidden="true" className="inline-block h-3.5 w-3.5 rounded-full border-2 border-slate-500 border-r-transparent animate-spin" />
+          📷 Conectando video…
+        </span>
+      </div>
     </div>
   );
 }
@@ -1061,58 +1150,85 @@ function PermissionRequestPanel({ roomName }: { roomName?: string }) {
 function PermissionDeniedPanel({
   kind,
   message,
+  attempts,
   onRetry,
+  onContinue,
   onLeave,
 }: {
   kind: Exclude<MediaErrorKind, null>;
   message: string | null;
+  /** Intentos fallidos consecutivos: tras 3 se sugiere recargar. */
+  attempts: number;
   onRetry: () => void;
+  /** "Continuar sin dispositivos" (modo recepción). Ausente → no se ofrece. */
+  onContinue?: () => void;
   onLeave: () => void;
 }) {
   const unsupported = kind === "unsupported";
-  // Título + ícono + texto por tipo de fallo (Tarea 5).
-  const { icon, title, fallback } =
+  // Título + ícono + texto + etiquetas de botones por tipo de fallo (Tarea 5).
+  const cfg =
     kind === "unsupported"
       ? {
           icon: "🚫",
           title: "Navegador no compatible",
           fallback:
             "Tu navegador no soporta WebRTC. Usa un navegador moderno (Chrome, Edge o Firefox) para participar.",
+          retryLabel: "",
+          continueLabel: "",
         }
       : kind === "busy"
       ? {
           icon: "⚠️",
-          title: "Dispositivos multimedia ocupados",
+          title: "No se pudo acceder a los dispositivos",
           fallback:
-            "Tu cámara o micrófono está siendo usado por otra aplicación. Cierra Zoom, Teams u otras videollamadas activas.",
+            "Tu cámara o micrófono está siendo usado por otra aplicación. Cierra Zoom, Teams u otras videollamadas activas e intenta de nuevo.",
+          retryLabel: "Reintentar",
+          continueLabel: "Continuar sin dispositivos",
         }
       : kind === "notfound"
       ? {
           icon: "🎥",
-          title: "Sin cámara ni micrófono",
+          title: "No se encontró cámara ni micrófono",
           fallback:
-            "No se encontró ninguna cámara ni micrófono conectados a este dispositivo.",
+            "No detectamos ninguna cámara ni micrófono conectados. Conecta un dispositivo e intenta de nuevo.",
+          retryLabel: "Reintentar detección",
+          continueLabel: "Continuar sin dispositivos",
         }
       : {
           icon: "🚫",
           title: "Permisos denegados",
           fallback:
-            "Para participar en la sala necesitas habilitar el acceso a la cámara y micrófono desde la configuración de tu navegador.",
+            "Bloqueaste el acceso a tu cámara y micrófono. Habilítalos desde la configuración del navegador.",
+          retryLabel: "Reintentar tras habilitar",
+          continueLabel: "Continuar sin dispositivos",
         };
+
+  const tooManyAttempts = attempts >= 3;
 
   return (
     <div
       role="alert"
+      aria-live="assertive"
       className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center"
     >
       <span
         aria-hidden="true"
-        className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/15 text-3xl"
+        className={cn(
+          "flex h-16 w-16 items-center justify-center rounded-full text-3xl",
+          kind === "busy" ? "bg-amber-500/15" : "bg-red-500/15"
+        )}
       >
-        {icon}
+        {cfg.icon}
       </span>
-      <h3 className="text-lg font-bold text-red-400 sm:text-xl">{title}</h3>
-      <p className="max-w-sm text-sm text-slate-400">{message || fallback}</p>
+      <h3
+        className={cn(
+          "text-lg font-bold sm:text-xl",
+          kind === "busy" ? "text-amber-300" : "text-red-400"
+        )}
+      >
+        {cfg.title}
+      </h3>
+      <p className="max-w-sm text-sm text-slate-400">{message || cfg.fallback}</p>
 
       {/* Ayuda de permisos del navegador (solo cuando el problema es de
           permisos; no aplica si el dispositivo está ocupado o no hay soporte). */}
@@ -1132,14 +1248,40 @@ function PermissionDeniedPanel({
           </p>
         </div>
       )}
+
+      {/* Tras 3 intentos fallidos, sugerimos recargar la página. */}
+      {tooManyAttempts && (
+        <p className="text-xs font-medium text-amber-300">
+          ¿Sigues teniendo problemas? Intenta recargar la página.
+        </p>
+      )}
+
       <div className="flex flex-col gap-2 sm:flex-row">
-        {!unsupported && (
+        {!unsupported &&
+          (tooManyAttempts ? (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center justify-center rounded-md bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
+              Recargar página
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex items-center justify-center rounded-md bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            >
+              {cfg.retryLabel}
+            </button>
+          ))}
+        {onContinue && (
           <button
             type="button"
-            onClick={onRetry}
-            className="inline-flex items-center justify-center rounded-md bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            onClick={onContinue}
+            className="inline-flex items-center justify-center rounded-md border border-slate-600 px-5 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
-            {kind === "busy" ? "Reintentar" : "Reintentar tras habilitar"}
+            {cfg.continueLabel}
           </button>
         )}
         <button

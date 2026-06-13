@@ -173,6 +173,10 @@ export interface UseWebRTCResult {
   peerState: Record<string, RTCPeerConnectionState>;
   /** Reintenta pedir cámara/micrófono (botón "Reintentar tras habilitar"). */
   retryMedia: () => void;
+  /** Activa los dispositivos por primera vez (sale del estado vacío). */
+  startMedia: () => void;
+  /** Intentos fallidos consecutivos (para sugerir "Recargar" tras 3). */
+  failedAttempts: number;
   /** Micrófonos disponibles (config individual de dispositivos). */
   audioDevices: MediaDeviceInfo[];
   /** Cámaras disponibles (config individual de dispositivos). */
@@ -267,7 +271,17 @@ export function useWebRTC({
   >({});
   // Permite reintentar getUserMedia (botón "Reintentar tras habilitar").
   const [retryKey, setRetryKey] = useState(0);
-  const retryMedia = useCallback(() => setRetryKey((k) => k + 1), []);
+  // C4 — Estado vacío: NO pedimos cámara/micrófono hasta que el usuario lo
+  // active explícitamente. Mientras `started` es false, mediaStatus se queda
+  // en "idle" y la UI muestra "Activa tu cámara y micrófono para comenzar".
+  const [started, setStarted] = useState(false);
+  const startMedia = useCallback(() => setStarted(true), []);
+  // Nº de intentos fallidos consecutivos (para sugerir "Recargar" tras 3).
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const retryMedia = useCallback(() => {
+    setStarted(true);
+    setRetryKey((k) => k + 1);
+  }, []);
 
   // ── Config individual de dispositivos (mic/cámara) ──────────────────────
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
@@ -570,6 +584,11 @@ export function useWebRTC({
       setMediaError("Tu navegador no soporta WebRTC");
       return;
     }
+    // C4 — Estado vacío: esperamos a que el usuario active sus dispositivos.
+    if (!started) {
+      setMediaStatus("idle");
+      return;
+    }
     let cancelled = false;
 
     (async () => {
@@ -593,7 +612,10 @@ export function useWebRTC({
             video: { width: { ideal: 1280 }, height: { ideal: 720 } },
           });
         }
-        if (!cancelled) setMediaStatus("granted");
+        if (!cancelled) {
+          setMediaStatus("granted");
+          setFailedAttempts(0); // éxito → reinicia el contador de reintentos
+        }
       } catch (err) {
         // Falló audio+video. Clasificamos el motivo (Tarea 5) e intentamos
         // continuar solo con audio antes de declarar el fallo total.
@@ -608,6 +630,7 @@ export function useWebRTC({
             setMediaStatus("audio-only");
             mediaStateRef.current.camOn = false;
             onMediaChangeRef.current?.({ micOn: true, camOn: false });
+            setFailedAttempts(0); // hay audio: lo consideramos éxito parcial
             mediaErrorRef.current =
               kind === "busy" ? "camara_ocupada" : "camara_denegada";
             setMediaError(
@@ -624,6 +647,7 @@ export function useWebRTC({
             const kind2 = classifyMediaError(err2);
             setMediaStatus("denied");
             setMediaErrorKind(kind2);
+            setFailedAttempts((n) => n + 1);
             mediaErrorRef.current =
               kind2 === "busy"
                 ? "dispositivos_ocupados"
@@ -682,7 +706,7 @@ export function useWebRTC({
       setScreenSharing(false);
       setMediaReady(false);
     };
-  }, [enabled, roomId, supported, retryKey, refreshDevices]);
+  }, [enabled, roomId, supported, started, retryKey, refreshDevices]);
 
   // ── Efecto: refrescar la lista ante conexión/desconexión de dispositivos ─
   useEffect(() => {
@@ -1138,6 +1162,8 @@ export function useWebRTC({
     peerConnecting,
     peerState,
     retryMedia,
+    startMedia,
+    failedAttempts,
     audioDevices,
     videoDevices,
     selectedMicId,

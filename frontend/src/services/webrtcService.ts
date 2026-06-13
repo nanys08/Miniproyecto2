@@ -28,9 +28,15 @@ const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL as
  * las VITE_TURN_* en Vercel o actualízalas aquí.
  */
 const DEFAULT_TURN: RTCIceServer = {
-  urls: "turn:free.expressturn.com:3478",
-  username: "000000002096653407",
-  credential: "0z3WX1a77UsxAe8M9KiBL4Mt3B0=",
+  // Incluye UDP (3478) y TCP (3478?transport=tcp) para atravesar redes que
+  // bloquean UDP. Credenciales free de ExpressTURN — ROTAN: si la llamada
+  // deja de conectar entre redes distintas, renuévalas aquí o en VITE_TURN_*.
+  urls: [
+    "turn:free.expressturn.com:3478",
+    "turn:free.expressturn.com:3478?transport=tcp",
+  ],
+  username: "000000002096735009",
+  credential: "TUkSvfCG3njhE4hJA6At3sf0t7g=",
 };
 
 /**

@@ -20,35 +20,26 @@ const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL as
   | undefined;
 
 /**
- * TURN por defecto (fallback) usado cuando NO hay VITE_TURN_* en el entorno
- * del deploy. En producción (Vercel) el `.env` local NO se sube, así que sin
- * esto el sitio quedaría solo con STUN → la llamada no conecta entre redes
- * distintas (NAT). Las credenciales de un TURN viajan al navegador, por lo que
- * son públicas por naturaleza; estas free ROTAN: si dejan de conectar, define
- * las VITE_TURN_* en Vercel o actualízalas aquí.
+ * TURN por defecto usado cuando NO hay VITE_TURN_* en el entorno del deploy.
+ * En producción (Vercel) el `.env` local NO se sube, así que sin esto el sitio
+ * quedaría solo con STUN → la llamada no conecta entre redes distintas (NAT).
+ *
+ * Proveedor: **metered.ca** (free, credenciales estables por cuenta — NO rotan
+ * como las free de ExpressTURN/OpenRelay). Las credenciales de un TURN viajan
+ * al navegador, así que son públicas por naturaleza. Cubrimos UDP (80), TCP (80
+ * y 443) y TLS (turns 443) para atravesar NAT y redes que bloquean UDP.
+ *
+ * Si en el futuro dejan de conectar, regenera las credenciales en
+ * dashboard.metered.ca y actualízalas aquí, o define las VITE_TURN_* en Vercel.
  */
-const DEFAULT_TURN: RTCIceServer = {
-  // Incluye UDP (3478) y TCP (3478?transport=tcp) para atravesar redes que
-  // bloquean UDP. Credenciales free de ExpressTURN — ROTAN: si la llamada
-  // deja de conectar entre redes distintas, renuévalas aquí o en VITE_TURN_*.
-  urls: [
-    "turn:free.expressturn.com:3478",
-    "turn:free.expressturn.com:3478?transport=tcp",
-  ],
-  username: "000000002096735009",
-  credential: "TUkSvfCG3njhE4hJA6At3sf0t7g=",
-};
+const METERED_USERNAME = "d201c52a9b40a1c418eec5ac";
+const METERED_CREDENTIAL = "X7028/jyIWL/0Lp5";
 
-/**
- * Relays TURN públicos adicionales (Open Relay Project). Incluyen TCP/443, que
- * atraviesa redes que bloquean UDP (datos móviles, wifi corporativa). Tener
- * varios TURN aumenta la probabilidad de conectar; los que fallen simplemente
- * no aportan candidatos.
- */
-const FALLBACK_TURN: RTCIceServer[] = [
-  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+const DEFAULT_TURN: RTCIceServer[] = [
+  { urls: "turn:standard.relay.metered.ca:80", username: METERED_USERNAME, credential: METERED_CREDENTIAL },
+  { urls: "turn:standard.relay.metered.ca:80?transport=tcp", username: METERED_USERNAME, credential: METERED_CREDENTIAL },
+  { urls: "turn:standard.relay.metered.ca:443", username: METERED_USERNAME, credential: METERED_CREDENTIAL },
+  { urls: "turns:standard.relay.metered.ca:443?transport=tcp", username: METERED_USERNAME, credential: METERED_CREDENTIAL },
 ];
 
 // ─── Tarea 2: soporte del navegador ──────────────────────────────────────────
@@ -79,12 +70,13 @@ export function getIceServers(): RTCIceServer[] {
       urls: [
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
-        "stun:stun2.l.google.com:19302",
+        "stun:stun.relay.metered.ca:80",
       ],
     },
   ];
 
-  // TURN principal: el del entorno (VITE_TURN_*) si existe; si no, el default.
+  // TURN principal: el del entorno (VITE_TURN_*) si existe; si no, el default
+  // (metered.ca, que cubre UDP/TCP/443).
   if (TURN_URL && TURN_USERNAME && TURN_CREDENTIAL) {
     servers.push({
       urls: TURN_URL,
@@ -92,11 +84,8 @@ export function getIceServers(): RTCIceServer[] {
       credential: TURN_CREDENTIAL,
     });
   } else {
-    servers.push(DEFAULT_TURN);
+    servers.push(...DEFAULT_TURN);
   }
-
-  // Relays públicos adicionales (incluye TCP/443 para redes que bloquean UDP).
-  servers.push(...FALLBACK_TURN);
 
   return servers;
 }

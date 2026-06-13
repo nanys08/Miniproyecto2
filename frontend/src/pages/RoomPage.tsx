@@ -41,9 +41,6 @@ import Loader from "@/components/Loader";
 import Avatar from "@/components/Avatar";
 import Button from "@/components/Button";
 
-/** Cuántos tiles vacíos rellenamos para mantener el grid 2x2. */
-const GRID_SLOTS = 4;
-
 interface ToggleControl {
   label: string;
   icon: JSX.Element;
@@ -149,7 +146,14 @@ export default function RoomPage() {
   });
 
   // ── Mostrar / ocultar el panel de chat ─────────────────────────────────
-  const [chatVisible, setChatVisible] = useState(true);
+  // En móvil arranca OCULTO: el video ocupa toda la pantalla (estilo Discord)
+  // y el chat se abre como overlay a pantalla completa. En desktop (lg+) sí
+  // arranca visible como columna lateral.
+  const [chatVisible, setChatVisible] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 1024px)").matches
+  );
 
   // ── Configuración de sala (solo anfitrión) ─────────────────────────────
   // La configuración se abre desde el menú "Más" de la barra inferior.
@@ -422,6 +426,21 @@ export default function RoomPage() {
     mediaStatus === "denied" ||
     mediaStatus === "unsupported";
 
+  // ── Cuadrícula adaptativa (estilo Discord) ──────────────────────────────
+  // El grid se ajusta al número REAL de participantes en lugar de un 2x2 fijo
+  // con casillas vacías. Así cada cámara ocupa el máximo espacio disponible:
+  //   1 → pantalla completa · 2 → apilados en móvil / lado a lado en desktop
+  //   3-4 → cuadrícula 2x2. Cada tile rellena su celda (sin huecos).
+  const tileCount = participants.length;
+  const gridClass =
+    tileCount <= 1
+      ? "grid-cols-1 grid-rows-1"
+      : tileCount === 2
+      ? "grid-cols-1 grid-rows-2 sm:grid-cols-2 sm:grid-rows-1"
+      : tileCount === 3
+      ? "grid-cols-1 grid-rows-3 sm:grid-cols-2 sm:grid-rows-2"
+      : "grid-cols-2 grid-rows-2";
+
   // ── Render ──────────────────────────────────────────────────────────────
   // El anfitrión eliminó la sala: pantalla de cierre de sesión (Tarea 9).
   if (sessionEnded) {
@@ -502,18 +521,20 @@ export default function RoomPage() {
           isReconnectingHeader ? "border-amber-500/30" : "border-slate-800"
         )}
       >
-        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="truncate text-lg font-semibold text-white sm:text-xl">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-2 px-3 py-2 sm:gap-3 sm:px-6 sm:py-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <h1 className="min-w-0 truncate text-base font-semibold text-white sm:text-xl">
                 {room?.name ?? "Cargando…"}
               </h1>
               {/* Badge único de estado (permisos / conexión / reconexión). */}
-              <CallBadge
-                tone={callStatus.tone}
-                label={callStatus.label}
-                spin={callStatus.spin}
-              />
+              <span className="shrink-0">
+                <CallBadge
+                  tone={callStatus.tone}
+                  label={callStatus.label}
+                  spin={callStatus.spin}
+                />
+              </span>
             </div>
             <p className="mt-0.5 text-xs text-slate-400">
               {room?.isActive !== false && (
@@ -531,7 +552,7 @@ export default function RoomPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <span className="hidden items-center gap-1.5 rounded-md bg-slate-800/60 px-2.5 py-1 text-xs text-slate-300 sm:inline-flex">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -606,7 +627,7 @@ export default function RoomPage() {
 
       {/* ── Tarea 6: participantes conectados (chat-service) ─────────────── */}
       {livePresence.length > 0 && (
-        <div className="shrink-0 border-b border-slate-800 bg-slate-950/60">
+        <div className="hidden shrink-0 border-b border-slate-800 bg-slate-950/60 sm:block">
           <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2 px-4 py-2 sm:px-6">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
               Conectados:
@@ -634,7 +655,7 @@ export default function RoomPage() {
         id="main-content"
         tabIndex={-1}
         className={cn(
-          "mx-auto flex w-full max-w-[1400px] min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 py-4 sm:px-6",
+          "relative mx-auto flex w-full max-w-[1400px] min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 sm:gap-4 sm:px-6 sm:py-4",
           "lg:grid lg:grid-rows-1",
           chatVisible ? "lg:grid-cols-[1fr_360px]" : "lg:grid-cols-1"
         )}
@@ -642,7 +663,7 @@ export default function RoomPage() {
         {/* Cuadrícula de video */}
         <section
           aria-labelledby="region-stage"
-          className="flex min-h-0 flex-1 flex-col rounded-2xl bg-slate-950/60 p-3 ring-1 ring-slate-800"
+          className="flex min-h-0 flex-1 flex-col rounded-xl bg-slate-950/60 p-1.5 ring-1 ring-slate-800 sm:rounded-2xl sm:p-3"
         >
           <h2 id="region-stage" className="sr-only">
             Área de video y compartición de pantalla
@@ -657,17 +678,15 @@ export default function RoomPage() {
             />
           ) : (
           <div className="relative flex min-h-0 flex-1 flex-col">
-          <ul className="grid h-full flex-1 grid-cols-2 grid-rows-2 gap-3">
-            {Array.from({ length: GRID_SLOTS }).map((_, idx) => {
-              const p = participants[idx];
-              if (p) {
-                // Para el propio usuario usamos el estado local
-                // (el toggle inmediato no espera al broadcast). Para los
-                // demás, leemos el estado replicado por el socket
-                // (default true si aún no llegó nada para ese uid).
-                // Estado mic/cam remoto: preferimos el del signaling server
-                // (remoteMedia) y caemos al del room-service (mediaStates).
-                const remote = remoteMedia[p.uid] ?? mediaStates[p.uid];
+          <ul className={cn("grid h-full w-full flex-1 gap-1.5 sm:gap-3", gridClass)}>
+            {participants.map((p) => {
+              // Para el propio usuario usamos el estado local
+              // (el toggle inmediato no espera al broadcast). Para los
+              // demás, leemos el estado replicado por el socket
+              // (default true si aún no llegó nada para ese uid).
+              // Estado mic/cam remoto: preferimos el del signaling server
+              // (remoteMedia) y caemos al del room-service (mediaStates).
+              const remote = remoteMedia[p.uid] ?? mediaStates[p.uid];
                 // Stream a pintar: el propio (cámara o pantalla si comparte),
                 // o el stream remoto resuelto por socketId.
                 const stream = p.isYou
@@ -705,9 +724,7 @@ export default function RoomPage() {
                         peerState[p.uid] === "failed")
                     }
                   />
-                );
-              }
-              return <EmptyTile key={`empty-${idx}`} />;
+              );
             })}
           </ul>
           {/* Overlay de conexión / reconexión sobre la cuadrícula. */}
@@ -718,11 +735,19 @@ export default function RoomPage() {
           )}
         </section>
 
-        {/* Panel chat — se puede ocultar con el botón de la barra inferior.
-            En móvil comparte el alto con el video (flex-1) y hace scroll
-            interno; en desktop ocupa todo el alto de la fila. */}
+        {/* Panel chat — se abre/cierra con el botón de la barra inferior.
+            En móvil es un OVERLAY a pantalla completa sobre el video (no le
+            roba alto a las cámaras); en desktop es la columna lateral fija. */}
         {chatVisible && (
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:h-full">
+          <div
+            className={cn(
+              "flex min-h-0 min-w-0 flex-col",
+              // Móvil: superpuesto sobre el área de video.
+              "absolute inset-0 z-30 bg-slate-900 p-2",
+              // Desktop: columna del grid, sin overlay.
+              "lg:static lg:z-auto lg:h-full lg:flex-1 lg:bg-transparent lg:p-0"
+            )}
+          >
             <ChatPanel
               currentUid={user?.uid ?? ""}
               messages={chatMessages}
@@ -739,8 +764,8 @@ export default function RoomPage() {
 
       {/* ── Barra de controles ─────────────────────────────────────────── */}
       <footer className="shrink-0 border-t border-slate-800 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Controles de la sala">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-2 px-2 py-2 sm:gap-3 sm:px-6 sm:py-3">
+          <div className="flex items-center gap-1.5 sm:gap-2" role="group" aria-label="Controles de la sala">
             {controls.map((c) => {
               // Toggle apagado (mic/cam silenciados) → rojo normativo
               // para que el usuario y los demás vean el estado al vuelo.
@@ -874,8 +899,9 @@ export default function RoomPage() {
           <button
             type="button"
             onClick={handleLeave}
+            aria-label="Salir de la sala"
             className={cn(
-              "inline-flex items-center gap-2 rounded-md border-2 border-red-500 px-4 py-1.5",
+              "inline-flex shrink-0 items-center gap-2 rounded-md border-2 border-red-500 px-3 py-1.5 sm:px-4",
               "text-sm font-semibold text-red-400 transition-colors",
               "hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             )}
@@ -885,7 +911,7 @@ export default function RoomPage() {
               <polyline points="16 17 21 12 16 7" />
               <line x1="21" y1="12" x2="9" y2="12" />
             </svg>
-            Salir de la sala
+            <span className="hidden sm:inline">Salir de la sala</span>
           </button>
         </div>
       </footer>
@@ -971,7 +997,7 @@ function VideoTile({
         disconnected ? " (desconectado)" : ""
       }`}
       className={cn(
-        "relative flex aspect-video items-center justify-center overflow-hidden rounded-xl transition",
+        "relative flex h-full w-full min-h-0 items-center justify-center overflow-hidden rounded-xl transition",
         showVideo
           ? "bg-slate-950 ring-1 ring-slate-600"
           : cameraOff
@@ -1050,17 +1076,6 @@ function VideoTile({
           </svg>
         )}
       </span>
-    </li>
-  );
-}
-
-function EmptyTile() {
-  return (
-    <li
-      aria-hidden="true"
-      className="flex aspect-video items-center justify-center rounded-xl border-2 border-dashed border-slate-700 bg-slate-900/40 text-xs text-slate-500"
-    >
-      Espacio disponible
     </li>
   );
 }

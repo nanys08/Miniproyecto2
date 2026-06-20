@@ -1036,8 +1036,13 @@ export function useWebRTC({
       if (sender) {
         sender.replaceTrack(screenTrack).catch(() => undefined);
       } else {
-        // Cámara denegada: añadimos la pista → dispara renegociación.
-        ctx.pc.addTrack(screenTrack, display);
+        // No hay sender de video (cámara denegada / modo solo-audio). Añadimos
+        // la pista de pantalla ASOCIÁNDOLA al stream local que ya transporta el
+        // micrófono —NO a `display`, que es solo-video (audio:false)—. Si la
+        // asociáramos a `display`, el remoto cambiaría su srcObject a ese stream
+        // sin audio y dejaría de escucharnos. Con el stream del mic, el remoto
+        // agrupa la pantalla junto al audio. Dispara renegociación.
+        ctx.pc.addTrack(screenTrack, localStreamRef.current ?? display);
       }
     });
 
@@ -1129,9 +1134,11 @@ export function useWebRTC({
           if (sender) {
             sender.replaceTrack(newTrack).catch(() => undefined);
           } else {
-            // No había pista de video (cámara antes denegada): la añadimos →
-            // dispara renegociación para que los peers la reciban.
-            ctx.pc.addTrack(newTrack, ns);
+            // No había pista de video (cámara antes denegada): la añadimos
+            // asociada al stream local que transporta el micrófono (no a `ns`,
+            // que es solo-video) para no romper el audio en el remoto. Dispara
+            // renegociación para que los peers la reciban.
+            ctx.pc.addTrack(newTrack, localStreamRef.current ?? ns);
           }
         });
         const ls = localStreamRef.current;

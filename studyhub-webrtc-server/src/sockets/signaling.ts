@@ -18,9 +18,11 @@
  *   - `participant_joined` / `participant_left`: sincronización de la lista de
  *       participantes (ID, nombre, estado inicial AV) para la UI del front.
  *   - `media-state` (agregado) y los eventos AV DISCRETOS `camera_on`/
- *       `camera_off`/`mic_on`/`mic_off`: estado de micrófono/cámara. Se guarda y
- *       se reenvía a la sala; los nuevos joiners reciben el estado en
- *       `introduction` / `participant_joined`.
+ *       `camera_off`/`mic_on`/`mic_off`: estado de micrófono/cámara. El
+ *       `media-state` agregado además transporta `presenting` (compartir
+ *       pantalla: true al iniciar, false al detener). Se guarda y se reenvía a
+ *       la sala; los nuevos joiners reciben el estado en `introduction` /
+ *       `participant_joined`.
  *   - `stream-started`: el peer ya tiene su media local lista (evidencia/logs).
  *   - `permissions-granted`: el navegador concedió cámara/micrófono.
  *   - `connection-state`: el cliente reporta el estado de su RTCPeerConnection
@@ -369,13 +371,19 @@ export const initSignaling = (io: Server): void => {
     );
 
     // ──────────────────────────────────────────────────────────────────────
-    // media-state — sincronización de micrófono / cámara (on/off) (Tarea 3).
-    // Payload: { micOn?, camOn? }. Se guarda en el peer y se reenvía a la sala;
-    // los nuevos joiners lo reciben dentro de `introduction`.
+    // media-state — sincronización de micrófono / cámara / compartir pantalla
+    // (Tarea 3). Payload: { micOn?, camOn?, presenting? }. `presenting` viaja
+    // SOLO por este evento agregado (no hay screen_on/screen_off discretos).
+    // Se guarda en el peer y se reenvía a la sala; los nuevos joiners lo
+    // reciben dentro de la lista `peers` de `introduction`.
     // ──────────────────────────────────────────────────────────────────────
     socket.on(
       "media-state",
-      (payload: { micOn?: boolean; camOn?: boolean }) => {
+      (payload: {
+        micOn?: boolean;
+        camOn?: boolean;
+        presenting?: boolean;
+      }) => {
         applyMediaChange(socket, payload || {});
       }
     );

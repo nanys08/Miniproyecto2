@@ -24,6 +24,11 @@ Frontend ──REST──▶ room-service (Repo 1)  ──valida sala──▶ F
    └────────── WebSocket  ${env.wsPath}  (puerto ${env.port}) ─────────┘
 \`\`\`
 
+> **Alcance.** Este servicio es **solo chat/presencia de texto**. No transporta
+> audio, video ni **compartir pantalla**: eso vive en el signaling-server
+> **WebRTC (Repositorio 3)** (eventos \`media-state\` / \`signal\`, estado
+> \`presenting\`). El media nunca pasa por aquí.
+
 ## Endpoint WebSocket (Tarea 2)
 
 Conexión:

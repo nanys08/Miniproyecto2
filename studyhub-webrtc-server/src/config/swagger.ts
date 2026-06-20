@@ -56,7 +56,7 @@ rooms = {
 | Evento | Dirección | Payload | Comportamiento |
 |---|---|---|---|
 | \`introduction\` | client → server | \`{ roomId, uid?, username?, avatar? }\` | **Tarea 4.** El peer entra a la sala y se presenta. |
-| \`introduction\` | server → client | \`{ roomId, self, peers: PeerInfo[] }\` | Al recién llegado: **quién está conectado**. A los demás: **quién entra** (\`peers\` con el nuevo). |
+| \`introduction\` | server → client | \`{ roomId, self, peers: PeerInfo[] }\` | Al recién llegado: **quién está conectado**. A los demás: **quién entra** (\`peers\` con el nuevo). Cada \`PeerInfo\` incluye \`presenting\`, así un peer que entra tarde sabe **quién ya está compartiendo pantalla**. |
 | \`participant_joined\` | server → sala | \`{ id, uid?, username, avatar?, micOn, camOn }\` | Un participante entró: **ID, nombre y estado inicial AV** (para la lista de la UI). |
 | \`participant_left\` | server → sala | \`{ id, uid?, username?, roomId }\` | Un participante salió: actualizar la lista de participantes activos. |
 | \`signal\` | client → server | \`{ to, signal }\` | Transporta offer/answer/ICE. El server lo reenvía **sin modificar** a \`to\`. |
@@ -65,8 +65,8 @@ rooms = {
 | \`permissions-granted\` | client → server | \`{ audio?, video? }\` | El navegador concedió cámara/micrófono. Log \`Permisos obtenidos\`. |
 | \`connection-state\` | client → server | \`{ peerUid?, peerSocketId?, state }\` | Estado de la \`RTCPeerConnection\`: \`connected\` (conexión iniciada), \`failed\` (fallo), \`disconnected\`. |
 | \`connection-error\` | server → sala | \`{ uid?, peerUid?, state }\` | Un peer reportó un **fallo de conexión** WebRTC; la UI puede reflejarlo. |
-| \`media-state\` | client → server | \`{ micOn?, camOn? }\` | Estado de micrófono/cámara (agregado). Se guarda en el peer y se reenvía a la sala. |
-| \`media-state\` | server → sala | \`{ socketId, uid?, micOn, camOn }\` | Cambio de mic/cam de un peer. Los nuevos joiners reciben el estado en \`introduction\`/\`participant_joined\`. |
+| \`media-state\` | client → server | \`{ micOn?, camOn?, presenting? }\` | Estado de micrófono/cámara **y de compartir pantalla** (agregado). Se guarda en el peer y se reenvía a la sala. \`presenting: true\` al empezar a compartir pantalla, \`false\` al dejar de hacerlo. |
+| \`media-state\` | server → sala | \`{ socketId, uid?, micOn, camOn, presenting }\` | Cambio de mic/cam/**compartir pantalla** de un peer. Los nuevos joiners reciben el estado (incl. \`presenting\`) en la lista \`peers\` de \`introduction\`. |
 | \`camera_on\` / \`camera_off\` | client → server **y** server → sala | \`{ id, uid? }\` | Evento AV **discreto** de cámara. El front puede emitirlo o escucharlo para actualizar la UI. |
 | \`mic_on\` / \`mic_off\` | client → server **y** server → sala | \`{ id, uid? }\` | Evento AV **discreto** de micrófono. El front puede emitirlo o escucharlo para actualizar la UI. |
 | \`media-error\` | client → server | \`{ reason? }\` | El peer no pudo acceder a cámara/micrófono. |
@@ -90,6 +90,47 @@ una sesión estable mientras hay streams activos:
   \`socket.recovered\`, re-registra el peer y reavisa a la sala.
 - **Estados de medios:** \`media-state\` mantiene sincronizados mic/cam entre
   todos los peers (y para los que entran después, vía \`introduction\`).
+
+## Compartir pantalla (presentación)
+
+Compartir pantalla **no usa eventos propios**: reutiliza la señalización WebRTC
+estándar más el estado agregado \`media-state\`. El servidor sigue siendo un
+**relay puro** — el video de la pantalla viaja **P2P** igual que la cámara y
+**nunca** pasa por aquí.
+
+**Flujo completo (extremo a extremo):**
+
+1. **Captura (front).** El presentador llama \`navigator.mediaDevices.getDisplayMedia()\`
+   y obtiene la pista de video de la pantalla. Si cancela el diálogo del
+   navegador, no pasa nada (no se emite ningún evento).
+2. **Renegociación (front, P2P).** Por cada \`RTCPeerConnection\`:
+   - Si ya hay un *sender* de video (la cámara estaba activa), reemplaza la
+     pista con \`sender.replaceTrack(pantalla)\` → **sin renegociación**, no se
+     emiten \`signal\` nuevos.
+   - Si no hay *sender* de video (cámara denegada / modo solo-audio), hace
+     \`pc.addTrack(pantalla)\` → **dispara renegociación**: se intercambian
+     \`offer\`/\`answer\`/\`ICE\` por el evento \`signal\` (relay normal de este server).
+3. **Anuncio a la sala.** El presentador emite
+   \`media-state { micOn, camOn, presenting: true }\`. El server guarda
+   \`presenting\` en el \`PeerInfo\` del peer y reenvía el \`media-state\`
+   (con \`presenting\`) al resto de la sala. La UI pasa de *grid* a *spotlight*
+   y muestra el badge **"Presentando"**.
+4. **Dejar de compartir.** Al detenerla (botón o el chrome del navegador, vía
+   \`track.onended\`), el front restaura la pista de cámara con \`replaceTrack\`
+   (o \`removeTrack\` si no había cámara) y emite
+   \`media-state { ..., presenting: false }\` → la sala vuelve a *grid*.
+
+**Persistencia para late-joiners.** Como \`presenting\` se almacena en el
+\`PeerInfo\` en memoria, un peer que entra **después** de iniciada la
+presentación recibe \`presenting: true\` del presentador dentro de la lista
+\`peers\` de su \`introduction\` (y también vía \`GET /rooms\`). No necesita esperar
+a un nuevo \`media-state\`.
+
+> **Notas.** El campo \`presenting\` se difunde **solo** por el \`media-state\`
+> agregado; **no** existen eventos discretos tipo \`screen_on\`/\`screen_off\`
+> (a diferencia de \`camera_on\`/\`mic_on\`). El cambio de \`presenting\` **no**
+> genera una línea de log propia (sí lo hacen mic/cam); su evidencia es el
+> tráfico de \`signal\` y el estado expuesto en \`GET /rooms\`.
 
 ## Logs
 
@@ -143,6 +184,12 @@ Cada acción se registra con timestamp ISO:
             },
             micOn: { type: "boolean", example: true },
             camOn: { type: "boolean", example: false },
+            presenting: {
+              type: "boolean",
+              example: false,
+              description:
+                "`true` si el peer está compartiendo pantalla (modo presentador).",
+            },
           },
         },
       },

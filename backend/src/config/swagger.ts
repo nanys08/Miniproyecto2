@@ -74,9 +74,16 @@ Conexión: \`io(SOCKET_URL, { auth: { token } })\` (mismo token Firebase).
 | \`receive_message\` | server → room | \`Message\` | Mensaje nuevo en la sala. |
 | \`user_joined\` | server → room | \`{ uid, username, avatar?, micOn, camOn, roomId }\` | Otro usuario entró. |
 | \`user_left\` | server → room | \`{ uid, username, roomId }\` | Otro usuario salió. |
-| \`media_state\` | bidir | \`{ roomId, micOn, camOn }\` | Estado del mic/cam de un participante. |
+| \`media_state\` | bidir | \`{ roomId, micOn, camOn }\` | Estado del mic/cam de un participante. **No incluye \`presenting\`**: el estado de compartir pantalla NO viaja por este servicio (ver nota abajo). |
 
 Ack contract: \`{ ok: true, data? } | { ok: false, error: <CODE>, message? }\`.
+
+> **Compartir pantalla (presentación).** El room-service **no** maneja
+> compartir pantalla. La captura (\`getDisplayMedia\`), la renegociación P2P
+> (\`replaceTrack\`/\`addTrack\`) y el estado \`presenting\` viven en el
+> **signaling-server WebRTC (Repositorio 3)**, vía su evento \`media-state\`
+> (kebab-case, distinto del \`media_state\` de aquí). El \`media_state\` de este
+> servicio se limita a \`micOn\`/\`camOn\` para la presencia y el grid.
 
 ## Reglas Firestore
 

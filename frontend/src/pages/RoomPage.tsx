@@ -63,6 +63,10 @@ interface ToggleControl {
    */
   isToggle: boolean;
   onClick: () => void;
+  /** Deshabilitado por el dispositivo (p. ej. compartir pantalla en móvil). */
+  disabled?: boolean;
+  /** aria-label / texto alterno cuando `disabled` es true. */
+  disabledLabel?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -283,6 +287,7 @@ export default function RoomPage() {
     micOn,
     camOn,
     screenSharing,
+    screenShareSupported,
     toggleMic,
     toggleCam,
     toggleScreenShare,
@@ -421,7 +426,18 @@ export default function RoomPage() {
       label: screenSharing ? "Dejar de compartir" : "Compartir pantalla",
       active: screenSharing,
       isToggle: false,
+      // getDisplayMedia no existe en navegadores móviles (iOS/Android).
+      disabled: !screenShareSupported,
+      disabledLabel: "Compartir pantalla solo disponible en escritorio",
       onClick: () => {
+        if (!screenShareSupported) {
+          show(
+            "info",
+            "Compartir pantalla solo está disponible en computadora. " +
+              "Los navegadores de iPhone y Android no permiten capturar la pantalla."
+          );
+          return;
+        }
         void toggleScreenShare();
       },
       icon: (
@@ -905,19 +921,33 @@ export default function RoomPage() {
                   : c.active
                   ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
                   : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800";
+              // Deshabilitado por el dispositivo (p. ej. compartir pantalla en
+              // móvil): se mantiene clickeable para mostrar el toast explicativo,
+              // pero atenuado y con aria-disabled.
+              const deviceDisabled = !!c.disabled && !mediaBlocked;
               return (
                 <button
                   key={c.label}
                   type="button"
                   onClick={mediaBlocked ? undefined : c.onClick}
                   disabled={mediaBlocked}
-                  aria-label={mediaBlocked ? "Sin acceso" : c.label}
+                  aria-disabled={deviceDisabled || undefined}
+                  title={deviceDisabled ? c.disabledLabel : undefined}
+                  aria-label={
+                    mediaBlocked
+                      ? "Sin acceso"
+                      : deviceDisabled
+                      ? c.disabledLabel ?? c.label
+                      : c.label
+                  }
                   aria-pressed={c.active}
                   className={cn(
                     "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
                     mediaBlocked
                       ? "cursor-not-allowed border-slate-800 bg-slate-900 text-slate-500 opacity-60"
+                      : deviceDisabled
+                      ? "border-slate-800 bg-slate-900 text-slate-500 opacity-60"
                       : offToggleStyle
                   )}
                 >

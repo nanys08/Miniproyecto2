@@ -58,6 +58,27 @@ export function isWebRTCSupported(): boolean {
   );
 }
 
+/**
+ * `true` si el navegador puede CAPTURAR LA PANTALLA (`getDisplayMedia`).
+ *
+ * Limitación de plataforma — los navegadores MÓVILES no exponen esta API:
+ *   - iPhone/iPad (iOS): NINGÚN navegador la soporta (todos usan WebKit y
+ *     Apple no permite capturar la pantalla desde una página web).
+ *   - Android (Chrome/Samsung Internet): tampoco implementan `getDisplayMedia`
+ *     en móvil.
+ * En esos casos `getDisplayMedia` es `undefined`. La UI debe DESHABILITAR el
+ * botón de compartir pantalla y explicar que solo está disponible en escritorio,
+ * en vez de fallar en silencio. Compartir pantalla desde un teléfono solo es
+ * posible con una app nativa (ReplayKit / MediaProjection), no desde la web.
+ */
+export function canShareScreen(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    !!navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getDisplayMedia === "function"
+  );
+}
+
 // ─── Tarea 6: servidores ICE (STUN + TURN) ───────────────────────────────────
 
 /**

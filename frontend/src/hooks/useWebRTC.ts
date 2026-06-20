@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import { createWebrtcSocket } from "@/services/webrtcSocket";
 import {
+  canShareScreen,
   createPeerConnection,
   isWebRTCSupported,
   logIceConfig,
@@ -158,6 +159,8 @@ export interface UseWebRTCResult {
   micOn: boolean;
   camOn: boolean;
   screenSharing: boolean;
+  /** `false` en móvil (iOS/Android): getDisplayMedia no existe → no se puede compartir pantalla. */
+  screenShareSupported: boolean;
   toggleMic: () => void;
   toggleCam: () => void;
   toggleScreenShare: () => Promise<void>;
@@ -260,6 +263,9 @@ export function useWebRTC({
   const [mediaReady, setMediaReady] = useState(false);
   // Tarea 2 — soporte del navegador (se evalúa una vez).
   const supported = isWebRTCSupported();
+  // Compartir pantalla solo existe en escritorio: getDisplayMedia no está en
+  // navegadores móviles (iOS/Android). La UI usa esto para deshabilitar el botón.
+  const screenShareSupported = canShareScreen();
 
   // Estados para las pantallas de permisos / conexión / reconexión.
   const [mediaStatus, setMediaStatus] = useState<MediaStatus>(
@@ -1018,6 +1024,9 @@ export function useWebRTC({
   }, [camOn, emitMediaState]);
 
   const startScreenShare = useCallback(async () => {
+    // En móvil (iOS/Android) no existe getDisplayMedia: no intentamos capturar.
+    // La UI ya deshabilita el botón; esto es una guarda defensiva.
+    if (!canShareScreen()) return;
     let display: MediaStream;
     try {
       display = await navigator.mediaDevices.getDisplayMedia({
@@ -1178,6 +1187,7 @@ export function useWebRTC({
     micOn,
     camOn,
     screenSharing,
+    screenShareSupported,
     toggleMic,
     toggleCam,
     toggleScreenShare,

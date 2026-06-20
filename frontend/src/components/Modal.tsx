@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/utils/cn";
 
 export interface ModalProps {
@@ -86,8 +87,15 @@ export default function Modal({
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  // Lo montamos con un PORTAL en <body> para que el diálogo viva en la raíz del
+  // documento y no dentro del árbol de la sala. Así escapa de cualquier contexto
+  // de apilamiento (stacking context) de la página y, sobre todo, queda por
+  // encima de los `<video>` de la llamada — que el navegador compone en una capa
+  // acelerada por hardware capaz de "atravesar" un overlay con menor compositing.
+  // `isolate` + `backdrop-blur` fuerzan que este overlay tenga su propia capa
+  // por encima del video; el backdrop más opaco deja la llamada claramente atrás.
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 isolate">
       {/* Backdrop como <button> para mantener semántica accesible
           (Escape también cierra el diálogo). */}
       <button
@@ -95,7 +103,7 @@ export default function Modal({
         aria-label="Cerrar diálogo"
         tabIndex={-1}
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/60 cursor-default"
+        className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm cursor-default"
       />
 
       <div
@@ -123,6 +131,7 @@ export default function Modal({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

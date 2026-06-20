@@ -476,13 +476,24 @@ export default function RoomPage() {
     () =>
       participants.map((p) => {
         const remote = remoteMedia[p.uid] ?? mediaStates[p.uid];
+        // ¿Está presentando? (compartiendo pantalla). Para el remoto la fuente
+        // fiable es `remoteMedia` (evento `media-state` de la señalización
+        // WebRTC); `mediaStates` del socket heredado no trae este flag.
+        const isPresenting = p.isYou
+          ? screenSharing
+          : !!(remoteMedia[p.uid]?.presenting);
         const stream = p.isYou
           ? screenSharing
             ? screenStream
             : localStream
           : remoteStreams[p.uid] ?? null;
-        const cameraOff = p.isYou
-          ? !screenSharing && !camOn
+        // La cámara se considera "apagada" (mostramos avatar) solo si NO está
+        // presentando. Al compartir pantalla el video del screen-share llega
+        // por `replaceTrack` aunque la cámara esté apagada: hay que mostrarlo.
+        const cameraOff = isPresenting
+          ? false
+          : p.isYou
+          ? !camOn
           : remote
           ? !remote.camOn
           : false;
@@ -506,7 +517,7 @@ export default function RoomPage() {
           muted: p.isYou, // tile propio en silencio para evitar eco
           mirror: p.isYou && !screenSharing,
           speaking: !!speaking[p.uid] && !micOff,
-          presenting: p.isYou ? screenSharing : !!remote?.presenting,
+          presenting: isPresenting,
           connection,
         };
       }),

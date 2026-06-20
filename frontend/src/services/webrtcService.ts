@@ -32,8 +32,8 @@ const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL as
  * Si en el futuro dejan de conectar, regenera las credenciales en
  * dashboard.metered.ca y actualízalas aquí, o define las VITE_TURN_* en Vercel.
  */
-const METERED_USERNAME = "d201c52a9b40a1c418eec5ac";
-const METERED_CREDENTIAL = "X7028/jyIWL/0Lp5";
+const METERED_USERNAME = "ff12781ef939a1e5ed9e40a2";
+const METERED_CREDENTIAL = "fnnMZBgEUR0PvyWs";
 
 const DEFAULT_TURN: RTCIceServer[] = [
   { urls: "turn:standard.relay.metered.ca:80", username: METERED_USERNAME, credential: METERED_CREDENTIAL },

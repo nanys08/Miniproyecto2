@@ -22,7 +22,15 @@
  * `useAuth().user.avatar`).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/hooks/useAuth";
@@ -36,6 +44,7 @@ import { getPublicUser, type PublicUser } from "@/services/users";
 import { friendlyError, type FriendlyError } from "@/services/apiErrors";
 import ChatPanel from "@/components/room/ChatPanel";
 import VideoGrid, { type GridTile } from "@/components/room/VideoGrid";
+import RemoteAudio from "@/components/room/RemoteAudio";
 import type { ParticipantConnection } from "@/components/room/ParticipantCard";
 import RoomSettingsModal from "@/components/rooms/RoomSettingsModal";
 import DeviceSettingsModal from "@/components/rooms/DeviceSettingsModal";
@@ -165,12 +174,44 @@ export default function RoomPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  // El menú se renderiza por PORTAL en <body> (para que no quede atrás de los
+  // recuadros de video); guardamos su posición calculada desde el botón.
+  const morePopRef = useRef<HTMLDivElement>(null);
+  const [morePos, setMorePos] = useState<{ left: number; bottom: number } | null>(
+    null
+  );
+
+  // Posicionar el menú portaleado justo encima del botón "Más" (barra inferior).
+  useLayoutEffect(() => {
+    if (!moreOpen) return;
+    const place = () => {
+      const r = moreBtnRef.current?.getBoundingClientRect();
+      if (!r) return;
+      // Clamp para que el menú (≈230px) no se salga por el borde derecho.
+      const MENU_W = 240;
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - MENU_W - 8));
+      setMorePos({ left, bottom: window.innerHeight - r.top + 8 });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [moreOpen]);
 
   // Cierre del menú "Más" con clic fuera o Escape (navegación por teclado).
   useEffect(() => {
     if (!moreOpen) return;
     function onPointer(e: MouseEvent) {
-      if (!moreMenuRef.current?.contains(e.target as Node)) {
+      const target = e.target as Node;
+      // El botón vive en el footer (moreMenuRef) y el menú en el portal
+      // (morePopRef): un clic en cualquiera de los dos NO cierra.
+      if (
+        !moreMenuRef.current?.contains(target) &&
+        !morePopRef.current?.contains(target)
+      ) {
         setMoreOpen(false);
       }
     }
@@ -514,7 +555,10 @@ export default function RoomPage() {
           cameraOff,
           micOff,
           stream: stream ?? undefined,
-          muted: p.isYou, // tile propio en silencio para evitar eco
+          // Todos los <video> de los tiles van en mute: el audio remoto se
+          // reproduce en <RemoteAudio> (sumidero estable) para que no se corte
+          // al ocultar/remontar tiles. El propio siempre mudo (evita eco).
+          muted: true,
           mirror: p.isYou && !screenSharing,
           speaking: !!speaking[p.uid] && !micOff,
           presenting: isPresenting,
@@ -775,6 +819,10 @@ export default function RoomPage() {
           chatVisible ? "lg:grid-cols-[1fr_360px]" : "lg:grid-cols-1"
         )}
       >
+        {/* Audio de los participantes remotos (sumidero estable, invisible).
+            Mantiene el sonido aunque los tiles se oculten o se remonten. */}
+        <RemoteAudio streams={remoteStreams} />
+
         {/* Cuadrícula de video */}
         <section
           aria-labelledby="region-stage"
@@ -900,14 +948,22 @@ export default function RoomPage() {
                 <span className="hidden sm:inline">Más</span>
               </button>
 
-              {moreOpen && (
-                <div
-                  role="menu"
-                  aria-label="Más opciones"
-                  className="absolute bottom-full left-0 z-20 mb-2 min-w-[230px] rounded-lg border border-slate-700 bg-slate-900 p-1.5 shadow-xl"
-                >
-                  {/* Config de dispositivos (mic/cámara) — disponible para
-                      todos los participantes, no solo el anfitrión. */}
+              {moreOpen &&
+                morePos &&
+                createPortal(
+                  <div
+                    ref={morePopRef}
+                    role="menu"
+                    aria-label="Más opciones"
+                    style={{
+                      position: "fixed",
+                      left: morePos.left,
+                      bottom: morePos.bottom,
+                    }}
+                    className="isolate z-[90] min-w-[230px] rounded-lg border border-slate-700 bg-slate-900/95 p-1.5 shadow-xl backdrop-blur-sm"
+                  >
+                    {/* Config de dispositivos (mic/cámara) — disponible para
+                        todos los participantes, no solo el anfitrión. */}
                   <button
                     type="button"
                     role="menuitem"
@@ -951,8 +1007,9 @@ export default function RoomPage() {
                       </span>
                     </button>
                   )}
-                </div>
-              )}
+                  </div>,
+                  document.body
+                )}
             </div>
 
             {/* Mostrar / ocultar el panel de chat. */}
